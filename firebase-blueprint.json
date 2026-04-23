@@ -1,0 +1,191 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Represents an employee or administrator in the system",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["employee", "admin"] },
+        "subsidiaryId": { "type": "string", "description": "Reference to the subsidiary node" },
+        "employeeId": { "type": "string" },
+        "department": { "type": "string" },
+        "jobTitle": { "type": "string" },
+        "branch": { "type": "string" },
+        "baseSalary": { "type": "number" },
+        "currency": { "type": "string", "enum": ["USD", "ZWG"] },
+        "annualLeaveBalance": { "type": "number", "description": "Cumulative leave days available" }
+      },
+      "required": ["uid", "email", "fullName", "role"]
+    },
+    "Subsidiary": {
+      "title": "Subsidiary",
+      "description": "A subsidiary company node managing its own payroll",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "taxId": { "type": "string" },
+        "registrationNumber": { "type": "string" },
+        "address": { "type": "string" },
+        "country": { "type": "string" },
+        "currency": { "type": "string", "enum": ["USD", "ZWG"] },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "currency"]
+    },
+    "Timesheet": {
+      "title": "Timesheet",
+      "description": "Records hours worked by an employee",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "submissionMode": { "type": "string", "enum": ["daily", "weekly", "monthly"] },
+        "date": { "type": "string", "description": "Reference date" },
+        "month": { "type": "string", "description": "YYYY-MM" },
+        "description": { "type": "string" },
+        "hoursWorked": { "type": "number" },
+        "overtimeHours": { "type": "number" },
+        "status": { "type": "string", "enum": ["submitted", "approved", "rejected"] },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "month", "hoursWorked"]
+    },
+    "LeaveApplication": {
+      "title": "Leave Application",
+      "description": "Request for leave of absence",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "type": { "type": "string", "enum": ["annual", "sick", "maternity", "study", "other"] },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "type", "startDate", "endDate"]
+    },
+    "LoanApplication": {
+      "title": "Loan Application",
+      "description": "Request for a salary loan or advance",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "installmentCount": { "type": "number" },
+        "reason": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "repaymentTotal": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "amount", "currency", "installmentCount"]
+    },
+    "Payslip": {
+      "title": "Payslip",
+      "description": "Generated payroll record for an employee",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "month": { "type": "string" },
+        "grossPay": { "type": "number" },
+        "netPay": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "aidsLevy": { "type": "number" },
+        "nssaDeduction": { "type": "number" },
+        "loanDeductions": { "type": "number" },
+        "totalDeductions": { "type": "number" },
+        "currency": { "type": "string" },
+        "leaveBalance": { "type": "number", "description": "Leave balance at the time of payslip generation" },
+        "generatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "month", "grossPay", "netPay"]
+    },
+    "UserPersonalDetails": {
+      "title": "User Personal Details",
+      "description": "Secure PII storage for employees",
+      "type": "object",
+      "properties": {
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "emergencyContactName": { "type": "string" },
+        "emergencyContactPhone": { "type": "string" },
+        "nationalId": { "type": "string" },
+        "medicalAidNo": { "type": "string" }
+      }
+    },
+    "PerformanceReview": {
+      "title": "Performance Review",
+      "description": "Records of employee performance evaluations",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "reviewerId": { "type": "string" },
+        "reviewDate": { "type": "string", "format": "date" },
+        "periodStart": { "type": "string", "format": "date" },
+        "periodEnd": { "type": "string", "format": "date" },
+        "overallRating": { "type": "number", "description": "1 to 5 scale" },
+        "feedback": { "type": "string" },
+        "goals": { "type": "string", "description": "Future objectives" },
+        "status": { "type": "string", "enum": ["scheduled", "conducted", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "reviewerId", "reviewDate", "overallRating", "status"]
+    },
+    "PayrollBatch": {
+      "title": "Payroll Batch",
+      "description": "Lifecycle management for a monthly payroll run",
+      "type": "object",
+      "properties": {
+        "subsidiaryId": { "type": "string" },
+        "month": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "finalized"] },
+        "finalizedAt": { "type": "string", "format": "date-time" },
+        "finalizedBy": { "type": "string" }
+      },
+      "required": ["subsidiaryId", "month", "status"]
+    }
+  },
+  "firestore": {
+    "/payroll_batches/{batchId}": {
+      "schema": "PayrollBatch",
+      "description": "Control records for payroll finalization"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/users/{userId}/private/details": {
+      "schema": "UserPersonalDetails",
+      "description": "Highly sensitive PII"
+    },
+    "/users/{userId}/reviews/{reviewId}": {
+      "schema": "PerformanceReview",
+      "description": "Employee performance evaluations"
+    },
+    "/subsidiaries/{subsidiaryId}": {
+      "schema": "Subsidiary",
+      "description": "Controlled company nodes"
+    },
+    "/timesheets/{timesheetId}": {
+      "schema": "Timesheet",
+      "description": "Employee timesheets"
+    },
+    "/leave_applications/{applicationId}": {
+      "schema": "LeaveApplication",
+      "description": "Leave requests"
+    },
+    "/loan_applications/{loanId}": {
+      "schema": "LoanApplication",
+      "description": "Loan requests"
+    },
+    "/payslips/{payslipId}": {
+      "schema": "Payslip",
+      "description": "Historical payslips"
+    }
+  }
+}
