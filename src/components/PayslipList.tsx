@@ -56,7 +56,6 @@ const PayslipList: React.FC = () => {
         const q = query(
           collection(db, 'payslips'),
           where('employeeId', '==', user.uid),
-          where('isPublished', '==', true),
           orderBy('month', 'desc')
         );
         const snap = await getDocs(q);
@@ -130,7 +129,12 @@ const PayslipList: React.FC = () => {
                   onClick={() => setSelectedPayslip(p)}
                   className="hover:bg-gray-50/50 transition-colors group cursor-pointer"
                 >
-                  <td className="px-6 py-4 font-bold text-gray-900">{p.month}</td>
+                  <td className="px-6 py-4 font-bold text-gray-900">
+                    {p.month}
+                    {p.isPublished === false && (
+                      <span className="ml-2 badge bg-amber-50 text-amber-600 border border-amber-100 font-sans tracking-normal lowercase italic text-[8px] py-0">provisional</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-right">{p.netPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                   <td className="px-6 py-4 text-center font-sans tracking-widest font-bold text-xs text-gray-400">{p.currency}</td>
                   <td className="px-6 py-4 text-right">
@@ -224,10 +228,26 @@ const PayslipList: React.FC = () => {
                 </div>
 
                 {/* Content Area - Scrollable */}
-                <div className="overflow-y-auto p-12">
-                  <div ref={payslipRef} className="print-container mx-auto bg-white" style={{ width: '210mm', minHeight: '140mm', padding: '15mm' }}>
-                    {/* Payslip Branding */}
-                    <div className="flex justify-between items-start mb-12 border-b-4 border-gray-900 pb-8">
+                <div className="overflow-y-auto p-12 bg-gray-100/50">
+                  <div ref={payslipRef} className="print-container mx-auto bg-white relative overflow-hidden" style={{ width: '210mm', minHeight: '140mm', padding: '15mm' }}>
+                    
+                    {/* Provisional Watermark */}
+                    {selectedPayslip.isPublished === false && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden" style={{ zIndex: 5 }}>
+                        <div className="border-y-8 border-gray-200/20 py-8 px-12 -rotate-45">
+                          <p className="text-gray-200/30 text-7xl font-black uppercase tracking-[0.2em] whitespace-nowrap">
+                            Mineazy
+                          </p>
+                          <p className="text-gray-200/30 text-4xl font-black uppercase tracking-[0.4em] text-center mt-2">
+                            Provisional Copy
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="relative z-10">
+                      {/* Payslip Branding */}
+                      <div className="flex justify-between items-start mb-12 border-b-4 border-gray-900 pb-8">
                       <div>
                         <div className="flex items-center gap-4 mb-4">
                           <div className="w-16 h-16 bg-gray-900 text-white flex items-center justify-center text-3xl font-black italic serif rounded-2xl">M</div>
@@ -351,7 +371,8 @@ const PayslipList: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              </motion.div>
+              </div>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>

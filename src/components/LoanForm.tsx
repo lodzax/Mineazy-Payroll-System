@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, addDoc, query, where, getDocs, orderBy, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../lib/AuthContext';
+import { logAction } from '../services/loggerService';
 import { BadgeDollarSign, CheckCircle, Send, AlertCircle, Info, ChevronLeft, ChevronRight, X, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -92,6 +93,15 @@ const LoanForm: React.FC = () => {
         status: 'pending',
         createdAt: serverTimestamp()
       });
+
+      await logAction({
+        action: 'Loan Application Submitted',
+        category: 'financial',
+        details: `Applied for ${profile?.currency || 'USD'} ${amount} over ${installments} months. Interest rate: ${interestRate}%.`,
+        userName: profile?.fullName || user.displayName,
+        userEmail: user.email
+      });
+
       setMessage({ type: 'success', text: 'Loan application submitted for review' });
       setAmount('');
       setReason('');

@@ -36,12 +36,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (docSnap.exists()) {
           profileData = docSnap.data();
           
-          // Force Super Admin status for the specific email to stay in sync
-          if (u.email === 'lodzax@gmail.com' && (profileData.role !== 'admin' || profileData.subsidiaryId)) {
+          // Force Super Admin status for the specific emails to stay in sync
+          if ((u.email === 'lodzax@gmail.com' || u.email === 'accounts@mineazy.co.zw') && (profileData.role !== 'admin' || profileData.subsidiaryId)) {
             profileData = {
               ...profileData,
               role: 'admin',
-              fullName: profileData.fullName || 'Lloyd Magora'
+              fullName: profileData.fullName || (u.email === 'accounts@mineazy.co.zw' ? 'Mwale' : 'Lloyd Magora')
             };
             if (profileData.subsidiaryId) delete profileData.subsidiaryId;
             await setDoc(docRef, profileData);
@@ -56,10 +56,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             profileData = { 
               ...existingData, 
               uid: u.uid,
-              fullName: u.email === 'lodzax@gmail.com' ? 'Lloyd Magora' : (existingData.fullName || u.displayName || 'Unnamed User')
+              fullName: u.email === 'accounts@mineazy.co.zw' ? 'Mwale' : (u.email === 'lodzax@gmail.com' ? 'Lloyd Magora' : (existingData.fullName || u.displayName || 'Unnamed User'))
             };
             
-            if (u.email === 'lodzax@gmail.com') {
+            if (u.email === 'lodzax@gmail.com' || u.email === 'accounts@mineazy.co.zw') {
               profileData.role = 'admin';
               if (profileData.subsidiaryId) delete profileData.subsidiaryId;
             }
@@ -67,16 +67,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             await setDoc(docRef, profileData);
             setProfile(profileData);
           } else {
-            const isOfficialAdmin = u.email === 'lodzax@gmail.com';
+            const isOfficialAdmin = u.email === 'lodzax@gmail.com' || u.email === 'accounts@mineazy.co.zw';
             const initialProfile: any = {
               uid: u.uid,
               email: u.email,
-              fullName: isOfficialAdmin ? 'Lloyd Magora' : (u.displayName || 'Unnamed User'),
+              fullName: u.email === 'accounts@mineazy.co.zw' ? 'Mwale' : (isOfficialAdmin ? 'Lloyd Magora' : (u.displayName || 'Unnamed User')),
               role: isOfficialAdmin ? 'admin' : 'employee',
               currency: 'USD',
               baseSalary: 1000
             };
-            await setDoc(docRef, initialProfile);
+            await setDoc(doc(db, 'users', u.uid), initialProfile);
             setProfile(initialProfile);
           }
         }
@@ -87,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, []);
 
-  const isSuperAdmin = user?.email === 'lodzax@gmail.com';
+  const isSuperAdmin = user?.email === 'lodzax@gmail.com' || user?.email === 'accounts@mineazy.co.zw';
   const isAdmin = isSuperAdmin || profile?.role === 'admin';
 
   return (

@@ -148,9 +148,29 @@
         "finalizedBy": { "type": "string" }
       },
       "required": ["subsidiaryId", "month", "status"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Records all critical system actions for auditing and security",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of the user who performed the action" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "action": { "type": "string", "description": "Descriptive name of the action" },
+        "category": { "type": "string", "enum": ["payroll", "personnel", "system", "financial", "performance", "report"] },
+        "details": { "type": "string", "description": "Additional context about the action" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "entityId": { "type": "string", "description": "Optional ID of the affected entity" }
+      },
+      "required": ["userId", "action", "category", "timestamp"]
     }
   },
   "firestore": {
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System-wide audit trail"
+    },
     "/payroll_batches/{batchId}": {
       "schema": "PayrollBatch",
       "description": "Control records for payroll finalization"

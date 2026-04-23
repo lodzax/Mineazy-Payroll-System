@@ -29,6 +29,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdmin }) =
     { id: 'leave', label: 'Leave', icon: Calendar },
     { id: 'loans', label: 'Loans', icon: BadgeDollarSign },
     { id: 'payslips', label: 'My Payslips', icon: FileText },
+    { id: 'performance', label: 'Performance', icon: Users },
   ];
 
   if (isAdmin) {

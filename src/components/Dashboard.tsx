@@ -8,7 +8,11 @@ import {
   Wallet, 
   TrendingUp,
   PlusCircle,
-  FileDown
+  FileDown,
+  ClipboardList,
+  Target,
+  Calendar,
+  RefreshCw
 } from 'lucide-react';
 import TimesheetForm from './TimesheetForm';
 import LeaveForm from './LeaveForm';
@@ -79,6 +83,10 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   if (activeTab === 'loans') return <LoanForm />;
   if (activeTab === 'payslips') return <PayslipList />;
 
+  if (activeTab === 'performance') {
+    return <PerformanceView />;
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Stats Grid */}
@@ -104,7 +112,27 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 flex flex-col gap-6">
           <section className="card">
+            <div className="card-title text-mine-green flex items-center justify-between">
+              Performance Insights
+              <button 
+                onClick={() => setActiveTab('performance')}
+                className="text-[10px] font-black uppercase tracking-widest text-mine-green hover:underline"
+              >
+                View Full Matrix
+              </button>
+            </div>
+            <div className="p-4 bg-green-50/50 rounded-xl border border-green-100 flex items-center gap-4">
+               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-mine-green shadow-sm"><Target size={20} /></div>
+               <div>
+                  <p className="text-xs font-black text-slate-900 uppercase tracking-widest mb-0.5">Development Roadmap</p>
+                  <p className="text-[10px] text-gray-500 leading-tight">Access your finalized evaluation matrices and strategic growth objectives.</p>
+               </div>
+            </div>
+          </section>
+
+          <section className="card">
             <div className="card-title">Recent Activity</div>
+            {/* ... table content remains same ... */}
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
@@ -221,3 +249,183 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
 };
 
 export default Dashboard;
+
+const PerformanceView: React.FC = () => {
+  const { user, profile } = useAuth();
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (user) {
+      const fetchReviews = async () => {
+        try {
+          const q = query(collection(db, 'users', user.uid, 'reviews'), orderBy('reviewDate', 'desc'));
+          const snap = await getDocs(q);
+          setReviews(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        } catch (err) {
+          console.error("Review fetch error:", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchReviews();
+    }
+  }, [user]);
+
+  const downloadReviewPDF = async (review: any) => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF();
+      
+      // Header
+      doc.setFillColor(15, 23, 42); 
+      doc.rect(0, 0, 210, 40, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(24);
+      doc.text('MINEAZY PERSONNEL AUDIT', 20, 25);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('OFFICIAL PERFORMANCE MATRIX REPORT', 20, 32);
+      
+      // Personnel Info
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Personnel Information', 20, 55);
+      
+      doc.setDrawColor(210, 180, 140);
+      doc.setLineWidth(0.5);
+      doc.line(20, 58, 190, 58);
+      
+      doc.setFontSize(10);
+      doc.text(`Full Name: ${profile?.fullName || user?.email}`, 20, 68);
+      doc.text(`Designation: ${profile?.jobTitle || 'N/A'}`, 20, 75);
+      doc.text(`Department: ${profile?.department || 'N/A'}`, 20, 82);
+      doc.text(`Review Date: ${new Date(review.reviewDate).toLocaleDateString()}`, 140, 68);
+      doc.text(`Rating: ${review.overallRating}.0 / 5.0`, 140, 75);
+      
+      // Evaluation Matrix
+      doc.setFontSize(14);
+      doc.text('Operational Evaluation', 20, 100);
+      doc.line(20, 103, 190, 103);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const feedbackLines = doc.splitTextToSize(review.feedback || 'No transcript record detected.', 170);
+      doc.text(feedbackLines, 20, 110);
+      
+      let nextY = 110 + (feedbackLines.length * 6) + 15;
+      
+      if (review.goals) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text('Strategic Objectives', 20, nextY);
+        doc.line(20, nextY + 3, 190, nextY + 3);
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        const goalLines = doc.splitTextToSize(review.goals, 170);
+        doc.text(goalLines, 20, nextY + 10);
+        nextY += (goalLines.length * 6) + 20;
+      }
+      
+      // Digital Fingerprint
+      if (nextY > 250) {
+        doc.addPage();
+        nextY = 30;
+      }
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Authorization Digital Fingerprint', 20, nextY);
+      doc.line(20, nextY + 3, 100, nextY + 3);
+      
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Reviewer: ${review.reviewerName || 'System Admin'}`, 20, nextY + 12);
+      doc.text(`Status: ${review.status.toUpperCase()}`, 20, nextY + 17);
+      doc.text(`Generation Node: AIS-PROD-ZIMRA-HUB`, 20, nextY + 22);
+      doc.text(`Timestamp: ${new Date().toISOString()}`, 20, nextY + 27);
+      
+      doc.save(`Personnel_Review_${(profile?.fullName || 'User').replace(/\s+/g, '_')}_${review.reviewDate}.pdf`);
+    } catch (err) {
+      console.error("PDF Fail:", err);
+      alert("Failed to generate PDF audit report.");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h2 className="text-2xl font-bold text-gray-900 italic serif">Performance Matrix</h2>
+        <p className="text-sm text-gray-500 underline decoration-mine-green decoration-2 underline-offset-4 font-black uppercase tracking-widest text-[10px]">Development Roadmap Audit</p>
+      </header>
+
+      {loading ? (
+        <div className="p-12 text-center">
+          <RefreshCw className="animate-spin text-mine-green mx-auto mb-4" size={32} />
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono">Querying Review Node...</p>
+        </div>
+      ) : reviews.length === 0 ? (
+        <div className="card text-center py-24 space-y-4">
+          <ClipboardList className="mx-auto text-gray-200" size={64} />
+          <p className="text-sm text-gray-400 italic">No finalized performance evaluations found in your personnel node.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {reviews.map(rev => (
+            <div key={rev.id} className="card group relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-24 h-24 bg-gray-50 -mr-12 -mt-12 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
+               <div className="flex justify-between items-start mb-6 relative z-10">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100 group-hover:bg-mine-green group-hover:text-white transition-colors">
+                      <Calendar size={22} />
+                    </div>
+                    <div>
+                      <p className="text-base font-black text-gray-900 italic serif">{new Date(rev.reviewDate).toLocaleDateString()}</p>
+                      <div className="flex items-center gap-1 mt-1">
+                        {[...Array(5)].map((_, i) => (
+                           <div key={i} className={`w-2 h-2 rounded-full ${i < rev.overallRating ? 'bg-mine-gold' : 'bg-gray-100'}`}></div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <span className={`badge border ${rev.status === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                      {rev.status}
+                    </span>
+                    {rev.status === 'completed' && (
+                      <button 
+                        onClick={() => downloadReviewPDF(rev)}
+                        className="flex items-center gap-1 text-[10px] font-black text-mine-green uppercase tracking-widest hover:underline"
+                      >
+                        <FileDown size={12} /> Audit PDF
+                      </button>
+                    )}
+                  </div>
+               </div>
+               
+               <div className="space-y-6 relative z-10">
+                  <div>
+                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-[3px] mb-2">Manager Feedback</p>
+                    <p className="text-xs text-gray-600 leading-relaxed italic bg-gray-50/50 p-4 rounded-xl">{rev.feedback}</p>
+                  </div>
+                  {rev.goals && (
+                    <div className="bg-mine-green/5 p-4 rounded-xl border border-mine-green/10">
+                      <p className="text-[9px] font-black text-mine-green uppercase tracking-[3px] mb-2 flex items-center gap-1">
+                        <Target size={12} /> Strategic Objectives
+                      </p>
+                      <p className="text-xs text-slate-800 font-bold">{rev.goals}</p>
+                    </div>
+                  )}
+               </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};

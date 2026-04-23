@@ -20,7 +20,10 @@ import {
 } from 'lucide-react';
 import { calculatePaye, calculateNssa, USD_TAX_BANDS, ZWG_TAX_BANDS } from '../lib/payrollUtils';
 import TaxCalculator from './TaxCalculator';
+import PayrollReports from './PayrollReports';
+import AuditTrail from './AuditTrail';
 import { useAuth } from '../lib/AuthContext';
+import { logAction } from '../services/loggerService';
 import { motion, AnimatePresence } from 'motion/react';
 
 
@@ -205,6 +208,15 @@ const AdminDashboard: React.FC = () => {
         });
       });
 
+      await logAction({
+        action: 'Status Update',
+        category: 'personnel',
+        details: `Updated ${collectionName} status for node ${id} to ${status}.`,
+        entityId: id,
+        userName: profile?.fullName || user?.displayName,
+        userEmail: user?.email
+      });
+
       fetchData();
     } catch (err) {
       console.error("Transactional clear failed:", err);
@@ -363,6 +375,13 @@ const AdminDashboard: React.FC = () => {
       }
       
       if (count > 0) {
+        await logAction({
+          action: 'Payroll Run Initiation',
+          category: 'payroll',
+          details: `Generated ${count} payslips for period ${displayMonth}. Subsidiary: ${subFilter || 'All'}.`,
+          userName: profile?.fullName || user?.displayName,
+          userEmail: user?.email
+        });
         setPayrollStatus({ type: 'success', message: `Vault update complete: ${count} payslips generated successfully. Review data before final publication.` });
       } else {
         setPayrollStatus({ type: 'info', message: 'No eligible records found for processing.' });
@@ -421,6 +440,15 @@ const AdminDashboard: React.FC = () => {
       });
 
       await batch.commit();
+
+      await logAction({
+        action: 'Payroll Finalization',
+        category: 'payroll',
+        details: `Finalized and published ${snap.size} payslips for period ${month}. Subsidiary: ${subId}.`,
+        userName: profile?.fullName || user?.displayName,
+        userEmail: user?.email
+      });
+
       setPayrollStatus({ type: 'success', message: `Payroll successfully Finalized & Published (${snap.size} records updated).` });
       fetchData();
     } catch (err) {
@@ -503,6 +531,14 @@ const AdminDashboard: React.FC = () => {
       const workbook = XLSX.read(arrayBuffer);
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+      await logAction({
+        action: 'Batch Import Initiation',
+        category: 'financial',
+        details: `Importing payroll updates from Excel (${file.name}). Pending updates: ${jsonData.length}.`,
+        userName: profile?.fullName || user?.displayName,
+        userEmail: user?.email
+      });
 
       const batch = writeBatch(db);
       let updateCount = 0;
@@ -937,6 +973,16 @@ const AdminDashboard: React.FC = () => {
         {/* ZIMRA Tax Calculator */}
         <div className="lg:col-span-2">
           <TaxCalculator />
+        </div>
+
+        {/* Payroll Intelligence Reports */}
+        <div className="lg:col-span-2">
+          <PayrollReports />
+        </div>
+
+        {/* Audit Trail Intelligence */}
+        <div className="lg:col-span-2">
+          <AuditTrail subsidiaryId={profile?.subsidiaryId} isSuperAdmin={isSuperAdmin} />
         </div>
       </div>
 

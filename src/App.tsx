@@ -1,7 +1,7 @@
 import React from 'react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
-import { LogIn, Pickaxe } from 'lucide-react';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { LogIn, Pickaxe, Mail, Lock, AlertCircle, RefreshCw } from 'lucide-react';
+import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from './lib/firebase';
 import Dashboard from './components/Dashboard';
 import AdminDashboard from './components/AdminDashboard';
@@ -13,8 +13,54 @@ import { motion, AnimatePresence } from 'motion/react';
 import GlobalSearch from './components/GlobalSearch';
 
 function LoginScreen() {
-  const handleLogin = () => {
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [isEmailLogin, setIsEmailLogin] = React.useState(false);
+  const [error, setError] = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+  const [resetSent, setResetSent] = React.useState(false);
+
+  const handleGoogleLogin = () => {
     signInWithPopup(auth, new GoogleAuthProvider());
+  };
+
+  const handlePasswordReset = async () => {
+    if (!email) {
+      setError('Please enter your email address first.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+      alert(`Instruction node sent to ${email}. Please check your communication logs (inbox).`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (err: any) {
+        if (err.code === 'auth/user-not-found') {
+          await createUserWithEmailAndPassword(auth, email, password);
+        } else {
+          throw err;
+        }
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -34,13 +80,92 @@ function LoginScreen() {
         <h1 className="text-3xl font-black text-mine-green uppercase tracking-tighter mb-1">Mineazy</h1>
         <p className="text-[10px] text-gray-500 font-black uppercase tracking-[4px] mb-10">Payroll Solutions</p>
         
-        <button
-          onClick={handleLogin}
-          className="btn btn-outline w-full !py-4 !text-sm flex items-center justify-center gap-3 border-2 border-app-bg"
-        >
-          <LogIn size={20} className="text-mine-green" />
-          Authenticate via Google
-        </button>
+        <AnimatePresence mode="wait">
+          {!isEmailLogin ? (
+            <motion.div
+              key="google"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              className="space-y-4"
+            >
+              <button
+                onClick={handleGoogleLogin}
+                className="btn btn-outline w-full !py-4 !text-sm flex items-center justify-center gap-3 border-2 border-app-bg"
+              >
+                <LogIn size={20} className="text-mine-green" />
+                Authenticate via Google
+              </button>
+              <button 
+                onClick={() => setIsEmailLogin(true)}
+                className="text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-mine-gold transition-colors"
+              >
+                Or use Email Credentials
+              </button>
+            </motion.div>
+          ) : (
+            <motion.form
+              key="email"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              onSubmit={handleEmailAuth}
+              className="space-y-4"
+            >
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2 text-red-600 text-[10px] font-bold uppercase tracking-tight">
+                  <AlertCircle size={14} /> {error}
+                </div>
+              )}
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input 
+                  type="email"
+                  required
+                  placeholder="Email Address"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-green"
+                />
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input 
+                  type="password"
+                  required
+                  placeholder="System Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-green"
+                />
+              </div>
+              <button
+                disabled={loading}
+                type="submit"
+                className="btn btn-primary w-full !py-4 !text-sm flex items-center justify-center gap-2"
+              >
+                {loading ? <RefreshCw className="animate-spin" size={18} /> : <LogIn size={18} />}
+                {loading ? 'Authorizing...' : 'Enter System'}
+              </button>
+              <div className="flex flex-col gap-3">
+                <button 
+                  type="button"
+                  onClick={handlePasswordReset}
+                  className="text-[9px] font-black text-mine-gold uppercase tracking-widest hover:underline decoration-mine-gold/50 underline-offset-4"
+                >
+                  Forgot system credentials? Reset node.
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setIsEmailLogin(false)}
+                  className="text-[10px] font-black text-gray-400 uppercase tracking-widest hover:text-mine-gold transition-colors flex items-center justify-center gap-1 mx-auto"
+                >
+                  Back to SSO Options
+                </button>
+              </div>
+            </motion.form>
+          )}
+        </AnimatePresence>
         
         <div className="mt-12 flex flex-col items-center gap-2">
           <div className="h-[1px] w-12 bg-mine-gold"></div>

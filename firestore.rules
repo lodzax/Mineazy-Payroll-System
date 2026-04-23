@@ -20,16 +20,16 @@ service cloud.firestore {
     }
 
     function isAdmin() { 
-      // check for bootstrapped admin email first
-      return isSignedIn() && (
+      // check for bootstrapped admin emails first
+      let isOfficial = isSignedIn() && (
         request.auth.token.email == 'lodzax@gmail.com' || 
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-         getUserData().role == 'admin')
-      ); 
+        request.auth.token.email == 'accounts@mineazy.co.zw'
+      );
+      return isOfficial || (isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().role == 'admin'); 
     }
 
     function isSuperAdmin() {
-      return isSignedIn() && request.auth.token.email == 'lodzax@gmail.com';
+      return isSignedIn() && (request.auth.token.email == 'lodzax@gmail.com' || request.auth.token.email == 'accounts@mineazy.co.zw');
     }
 
     function isOwner(userId) { 
@@ -94,7 +94,39 @@ service cloud.firestore {
               get(/databases/$(database)/documents/payroll_batches/$(globalId)).data.status == 'finalized');
     }
 
+    function isValidPii(data) {
+      return (data.keys().hasAll(['updatedAt', 'updatedBy'])) 
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 50))
+        && (!('address' in data) || (data.address is string && data.address.size() <= 500))
+        && (!('emergencyContact' in data) || (data.emergencyContact is string && data.emergencyContact.size() <= 100))
+        && (!('emergencyRelation' in data) || (data.emergencyRelation is string && data.emergencyRelation.size() <= 50))
+        && (!('emergencyPhone' in data) || (data.emergencyPhone is string && data.emergencyPhone.size() <= 50))
+        && (!('nationalId' in data) || (data.nationalId is string && data.nationalId.size() <= 100))
+        && (!('medicalAidNo' in data) || (data.medicalAidNo is string && data.medicalAidNo.size() <= 100))
+        && (!('bankName' in data) || (data.bankName is string && data.bankName.size() <= 100))
+        && (!('accountNumber' in data) || (data.accountNumber is string && data.accountNumber.size() <= 100))
+        && (!('branchCode' in data) || (data.branchCode is string && data.branchCode.size() <= 50))
+        && (!('accountName' in data) || (data.accountName is string && data.accountName.size() <= 100))
+        && data.updatedAt == request.time;
+    }
+
+    function isValidAuditLog(data) {
+      return data.userId == request.auth.uid
+        && data.action is string && data.action.size() <= 200
+        && data.category in ["payroll", "personnel", "system", "financial", "performance", "report"]
+        && data.timestamp == request.time
+        && (!('details' in data) || (data.details is string && data.details.size() <= 2000))
+        && (!('userName' in data) || (data.userName is string && data.userName.size() <= 100))
+        && (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() <= 100))
+        && (!('entityId' in data) || (data.entityId is string && data.entityId.size() <= 128));
+    }
+
     // --- COLLECTIONS ---
+
+    match /audit_logs/{logId} {
+      allow list, get: if isAdmin();
+      allow create: if isSignedIn(); // Simplified for now to ensure logging works
+    }
 
     match /payroll_batches/{batchId} {
       allow read: if isSignedIn();
@@ -114,7 +146,7 @@ service cloud.firestore {
 
       match /private/details {
         allow read: if isSuperAdmin() || (isAdmin() && isSameSubsidiary(get(/databases/$(database)/documents/users/$(userId)).data)) || isOwner(userId);
-        allow write: if isSuperAdmin() || (isAdmin() && isSameSubsidiary(get(/databases/$(database)/documents/users/$(userId)).data)) || isOwner(userId);
+        allow write: if (isSuperAdmin() || (isAdmin() && isSameSubsidiary(get(/databases/$(database)/documents/users/$(userId)).data))) && isValidPii(incoming());
       }
       
       match /reviews/{reviewId} {

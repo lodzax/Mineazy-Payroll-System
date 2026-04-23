@@ -1,31 +1,31 @@
-# Security Specification - Mineazy Payroll
+# Security Specification: Audit Trail Protocol
 
-## Data Invariants
-1. **User Identity Invariant**: Users can only create their own profile and view their own documents (timesheets, leave, etc.).
-2. **Admin Authority Invariant**: Only users with the `role == 'admin'` can view ALL documents and perform approvals/payroll runs.
-3. **Bootstrapped Admin Invariant**: The specified admin email (`lodzax@gmail.com`) is granted admin privileges by default.
-4. **Relationship Invariant**: Every sub-document (timesheet, leave) must be linked to a valid user ID.
-5. **Terminal State Invariant**: Once a timesheet or leave request is 'approved' or 'rejected', only an admin can modify it further.
+## 1. Data Invariants
+- An audit log MUST be immutable once created (no update, no delete).
+- The `userId` in the log MUST match the authenticated `request.auth.uid`.
+- The `timestamp` MUST be the server-side `request.time`.
+- Only administrators (Admins or Super Admins) can read the audit trail.
+- All system users can *create* audit logs to track their own activities.
 
-## The "Dirty Dozen" Payloads (Denial Tests)
+## 2. The "Dirty Dozen" Payloads (Audit Trail)
 
-1. **Identity Theft (Create)**: Creating a user profile with a different UID.
-2. **Privilege Escalation (Create)**: Creating a user profile with `role: 'admin'`.
-3. **Privilege Escalation (Update)**: Changing own `role` from 'employee' to 'admin'.
-4. **Data Snooping (List)**: Non-admin trying to list all timesheets.
-5. **Data Snooping (Get)**: Non-admin trying to get someone else's payslip.
-6. **State Hijacking (Update)**: Employee trying to set their own timesheet to 'approved'.
-7. **Shadow Update (Update)**: Adding a `salaryBonus: 99999` field to a user profile.
-8. **Resource Poisoning (Create)**: Creating a document with a 1MB string in the `reason` field.
-9. **ID Poisoning (Create)**: Attempting to create a document with an extremely long or invalid character document ID.
-10. **Relational Orphan (Create)**: Creating a leave request with a `userId` that doesn't match the authenticated user.
-11. **Time Spoofing (Create)**: Providing a manual `createdAt` timestamp instead of using `serverTimestamp()`.
-12. **PII Leak (List)**: Non-authenticated user trying to access the `users` collection.
+1. **Identity Spoofing**: `userId` mismatching `auth.uid`.
+2. **Timestamp Manipulation**: Providing a client-side timestamp instead of `request.time`.
+3. **Unauthorized Read**: An employee trying to `list` the `/audit_logs` collection.
+4. **Log Tampering (Update)**: Attempting to `update` an existing log entry.
+5. **Log Deletion**: Attempting to `delete` an existing log entry.
+6. **Shadow Field Injection**: Adding undocumented fields to a log entry.
+7. **Resource Poisoning**: Providing a 1MB string in the `details` field.
+8. **ID Poisoning**: Using a 2KB string as the document ID.
+9. **Category Bypass**: Using an invalid enum value for `category`.
+10. **Admin Claim Spoofing**: A non-admin user trying to `get` a specific log.
+11. **Massive Query**: Attempting to list logs without an admin role.
+12. **Orphaned Write**: Logging an action for a non-existent `entityId` (mitigated by app logic, but rules ensure type/size).
 
-## Test Runner (Verification Plan)
-The following fields must be strictly validated in the rules:
-- `userId` matches `request.auth.uid` for non-admins.
-- `role` is immutable for non-admins.
-- `status` only changeable by admins during updates.
-- All strings have `.size()` limits.
-- Timestamps use `request.time`.
+## 3. Test Runner (Conceptual)
+Detailed tests will verify:
+- `allow create: if isSignedIn() && isValidAuditLog(incoming())`
+- `isValidAuditLog` enforces strict keys and server timestamps.
+- `allow update: if false`
+- `allow delete: if false`
+- `allow read: if isAdmin()`

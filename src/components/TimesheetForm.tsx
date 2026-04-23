@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, addDoc, query, where, getDocs, orderBy, serverTimestamp, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../lib/AuthContext';
+import { logAction } from '../services/loggerService';
 import { Clock, CheckCircle, Send, AlertCircle, ChevronLeft, ChevronRight, RefreshCw, FileUp, Download, Pencil, X, Trash2, Eye } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Papa from 'papaparse';
@@ -100,6 +101,14 @@ const TimesheetForm: React.FC = () => {
       });
       setMessage({ type: 'success', text: `${submissionMode.charAt(0).toUpperCase() + submissionMode.slice(1)} timesheet submitted successfully` });
       
+      await logAction({
+        action: 'Timesheet Submission',
+        category: 'performance',
+        details: `Submitted ${submissionMode} timesheet for ${date}: ${hours}h std, ${overtime}h OT.`,
+        userName: profile?.fullName || user.displayName,
+        userEmail: user.email
+      });
+
       // Reset defaults based on mode
       if (submissionMode === 'daily') setHours('8');
       else if (submissionMode === 'weekly') setHours('40');
@@ -174,6 +183,16 @@ const TimesheetForm: React.FC = () => {
             successCount++;
           }
 
+          if (successCount > 0) {
+            await logAction({
+              action: 'Bulk Timesheet Import',
+              category: 'performance',
+              details: `Successfully imported ${successCount} timesheet entries via CSV.`,
+              userName: profile?.fullName || user.displayName,
+              userEmail: user.email
+            });
+          }
+
           setMessage({ type: 'success', text: successCount > 0 
             ? `Successfully imported ${successCount} entries` 
             : 'No valid entries found in CSV' });
@@ -205,6 +224,16 @@ const TimesheetForm: React.FC = () => {
         description: editDescription,
         updatedAt: serverTimestamp()
       });
+
+      await logAction({
+        action: 'Timesheet Update',
+        category: 'performance',
+        details: `Updated entry ${editingEntry.id}: ${editHours}h std, ${editOvertime}h OT.`,
+        entityId: editingEntry.id,
+        userName: profile?.fullName || user.displayName,
+        userEmail: user.email
+      });
+
       setMessage({ type: 'success', text: 'Timesheet entry updated successfully' });
       setEditingEntry(null);
       fetchHistory();

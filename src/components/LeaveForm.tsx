@@ -2,7 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { collection, addDoc, query, where, getDocs, orderBy, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../lib/AuthContext';
-import { Calendar, CheckCircle, Send, AlertCircle, MapPin, ChevronLeft, ChevronRight } from 'lucide-react';
+import { logAction } from '../services/loggerService';
+import { Calendar, CheckCircle, Send, AlertCircle, MapPin, ChevronLeft, ChevronRight, Info, AlertTriangle } from 'lucide-react';
+
+const ZIM_PUBLIC_HOLIDAYS_2026 = [
+  '2026-01-01', // New Year's Day
+  '2026-02-21', // Youth Day
+  '2026-04-03', // Good Friday
+  '2026-04-06', // Easter Monday
+  '2026-04-18', // Independence Day
+  '2026-05-01', // Workers' Day
+  '2026-05-25', // Africa Day
+  '2026-08-10', // Heroes' Day
+  '2026-08-11', // Defense Forces Day
+  '2026-12-22', // Unity Day
+  '2026-12-25', // Christmas Day
+  '2026-12-26', // Boxing Day
+];
 
 const Pagination: React.FC<{
   currentPage: number;
@@ -50,6 +66,53 @@ const LeaveForm: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 5;
 
+  const [dateStats, setDateStats] = useState({
+    totalDays: 0,
+    workingDays: 0,
+    weekends: 0,
+    holidays: 0
+  });
+
+  useEffect(() => {
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      if (end >= start) {
+        let current = new Date(start);
+        let total = 0;
+        let working = 0;
+        let weekends = 0;
+        let holidays = 0;
+
+        while (current <= end) {
+          total++;
+          const dayOfWeek = current.getDay();
+          const dateString = current.toISOString().split('T')[0];
+          
+          const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+          const isHoliday = ZIM_PUBLIC_HOLIDAYS_2026.includes(dateString);
+
+          if (isWeekend) {
+            weekends++;
+          } else if (isHoliday) {
+            holidays++;
+          } else {
+            working++;
+          }
+
+          current.setDate(current.getDate() + 1);
+        }
+
+        setDateStats({ totalDays: total, workingDays: working, weekends, holidays });
+      } else {
+        setDateStats({ totalDays: 0, workingDays: 0, weekends: 0, holidays: 0 });
+      }
+    } else {
+      setDateStats({ totalDays: 0, workingDays: 0, weekends: 0, holidays: 0 });
+    }
+  }, [startDate, endDate]);
+
   const fetchHistory = async () => {
     if (!user) return;
     const q = query(
@@ -82,6 +145,15 @@ const LeaveForm: React.FC = () => {
         status: 'pending',
         createdAt: serverTimestamp()
       });
+
+      await logAction({
+        action: 'Leave Application Submitted',
+        category: 'personnel',
+        details: `Requested ${type} leave from ${startDate} to ${endDate}. Working days: ${dateStats.workingDays}.`,
+        userName: profile?.fullName || user.displayName,
+        userEmail: user.email
+      });
+
       setMessage({ type: 'success', text: 'Leave application submitted' });
       setStartDate('');
       setEndDate('');
@@ -161,6 +233,50 @@ const LeaveForm: React.FC = () => {
                 placeholder="Logistics or details..."
               />
             </div>
+
+            {startDate && endDate && (
+              <div className="bg-gray-50/50 border border-app-bg rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                    <Info size={12} className="text-mine-green" /> Application Summary
+                  </h4>
+                  <span className="text-[10px] font-mono font-bold text-mine-green">{dateStats.totalDays} Calendar Days</span>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-white p-2 rounded-lg border border-gray-100 flex flex-col items-center">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Working</p>
+                    <p className="text-sm font-black text-gray-900">{dateStats.workingDays}</p>
+                  </div>
+                  <div className={`p-2 rounded-lg border flex flex-col items-center ${dateStats.weekends > 0 ? 'bg-orange-50 border-orange-100' : 'bg-white border-gray-100'}`}>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Weekend</p>
+                    <p className={`text-sm font-black ${dateStats.weekends > 0 ? 'text-orange-600' : 'text-gray-900'}`}>{dateStats.weekends}</p>
+                  </div>
+                  <div className={`p-2 rounded-lg border flex flex-col items-center ${dateStats.holidays > 0 ? 'bg-amber-50 border-amber-100' : 'bg-white border-gray-100'}`}>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">Holiday</p>
+                    <p className={`text-sm font-black ${dateStats.holidays > 0 ? 'text-amber-600' : 'text-gray-900'}`}>{dateStats.holidays}</p>
+                  </div>
+                </div>
+
+                {type === 'annual' && dateStats.workingDays > (profile?.annualLeaveBalance || 0) && (
+                  <div className="bg-red-50 border border-red-100 p-2.5 rounded-lg flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
+                    <AlertCircle size={14} className="text-red-600 mt-0.5 shrink-0" />
+                    <p className="text-[10px] font-bold text-red-700 leading-tight">
+                      Insufficient Balance. Requested working days ({dateStats.workingDays}) exceed your available vault credits ({(profile?.annualLeaveBalance || 0).toFixed(1)}).
+                    </p>
+                  </div>
+                )}
+
+                {(dateStats.weekends > 0 || dateStats.holidays > 0) && (
+                  <div className="bg-orange-50 border border-orange-100 p-2.5 rounded-lg flex items-start gap-2">
+                    <AlertTriangle size={14} className="text-orange-600 mt-0.5 shrink-0" />
+                    <p className="text-[10px] font-bold text-orange-700 leading-tight">
+                      Date Range contains {dateStats.weekends > 0 ? `${dateStats.weekends} weekend day(s)` : ''} {dateStats.weekends > 0 && dateStats.holidays > 0 ? 'and' : ''} {dateStats.holidays > 0 ? `${dateStats.holidays} statutory holiday(s)` : ''}. These are usually non-deductible in payroll.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {message && (
               <div className={`p-3 rounded-md flex items-center gap-2 text-xs font-semibold ${

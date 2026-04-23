@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, query, where, getDocs, updateDoc, doc, addDoc, serverTimestamp, deleteDoc, setDoc, getDoc, orderBy } from 'firebase/firestore';
 import { db, handleFirestoreError } from '../lib/firebase';
 import { useAuth } from '../lib/AuthContext';
+import { logAction } from '../services/loggerService';
 import { 
   Users, 
   Plus, 
@@ -20,6 +21,7 @@ import {
   ChevronRight,
   Building2,
   ClipboardList,
+  FileDown,
   Star,
   CheckCircle2,
   Target,
@@ -157,7 +159,7 @@ const SearchableSelect: React.FC<{
 };
 
 const EmployeeManagement: React.FC = () => {
-  const { user, profile, isSuperAdmin } = useAuth();
+  const { user, profile, isSuperAdmin, isAdmin } = useAuth();
 
   const [employees, setEmployees] = useState<any[]>([]);
   const [subsidiaries, setSubsidiaries] = useState<any[]>([]);
@@ -212,6 +214,41 @@ const EmployeeManagement: React.FC = () => {
     branchCode: '',
     accountName: ''
   });
+
+  const [isVaultLocked, setIsVaultLocked] = useState(true);
+  const [authEmail, setAuthEmail] = useState('');
+  const [isVerifyingAdmin, setIsVerifyingAdmin] = useState(false);
+
+  // Inactivity Re-lock logic
+  useEffect(() => {
+    let inactivityTimer: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      if (!isVaultLocked) {
+        inactivityTimer = setTimeout(() => {
+          setIsVaultLocked(true);
+          setIsEditingPii(false);
+        }, 120000); // 2 minutes of node inactivity
+      }
+    };
+
+    if (!isVaultLocked) {
+      resetTimer();
+      document.addEventListener('mousemove', resetTimer);
+      document.addEventListener('keypress', resetTimer);
+      document.addEventListener('touchstart', resetTimer);
+      document.addEventListener('scroll', resetTimer, true);
+    }
+
+    return () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      document.removeEventListener('mousemove', resetTimer);
+      document.removeEventListener('keypress', resetTimer);
+      document.removeEventListener('touchstart', resetTimer);
+      document.removeEventListener('scroll', resetTimer, true);
+    };
+  }, [isVaultLocked]);
 
   // Performance Review states
   const [reviews, setReviews] = useState<any[]>([]);
@@ -273,6 +310,14 @@ const EmployeeManagement: React.FC = () => {
 
       if (editingEmp) {
         await updateDoc(doc(db, 'users', editingEmp.uid), dataToSave);
+        await logAction({
+          action: 'Personnel Update',
+          category: 'personnel',
+          details: `Updated details for employee ${editingEmp.fullName} (${editingEmp.uid}).`,
+          entityId: editingEmp.uid,
+          userName: profile?.fullName || user?.displayName,
+          userEmail: user?.email
+        });
       } else {
         const id = doc(collection(db, 'users')).id;
         await setDoc(doc(db, 'users', id), {
@@ -280,6 +325,14 @@ const EmployeeManagement: React.FC = () => {
           uid: id,
           status: dataToSave.status || 'active',
           createdAt: serverTimestamp()
+        });
+        await logAction({
+          action: 'Personnel Recruitment',
+          category: 'personnel',
+          details: `Created new employee record for ${dataToSave.fullName} in ${dataToSave.department}.`,
+          entityId: id,
+          userName: profile?.fullName || user?.displayName,
+          userEmail: user?.email
         });
       }
       setIsModalOpen(false);
@@ -296,6 +349,14 @@ const EmployeeManagement: React.FC = () => {
     setProcessing(true);
     try {
       await deleteDoc(doc(db, 'users', uid));
+      await logAction({
+        action: 'Personnel Deletion',
+        category: 'personnel',
+        details: `Deleted employee record with UID ${uid}.`,
+        entityId: uid,
+        userName: profile?.fullName || user?.displayName,
+        userEmail: user?.email
+      });
       fetchData();
     } catch (err) {
       handleFirestoreError(err, 'delete');
@@ -312,6 +373,16 @@ const EmployeeManagement: React.FC = () => {
     setIsEditingPii(false);
     try {
       const piiSnap = await getDoc(doc(db, 'users', user.uid, 'private', 'details'));
+      
+      await logAction({
+        action: 'PII Access',
+        category: 'system',
+        details: `Accessed sensitive ${initialTab} data for employee ${user.fullName} (${user.uid}).`,
+        entityId: user.uid,
+        userName: profile?.fullName || user?.displayName,
+        userEmail: user?.email
+      });
+
       if (piiSnap.exists()) {
         const data = piiSnap.data();
         setUserPii(data);
@@ -351,6 +422,18 @@ const EmployeeManagement: React.FC = () => {
     }
   };
 
+  const handleUnlockVault = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (authEmail.toLowerCase() === user?.email?.toLowerCase()) {
+      setIsVerifyingAdmin(false);
+      setIsVaultLocked(false);
+      setIsEditingPii(true);
+      setAuthEmail('');
+    } else {
+      alert("Verification failed. Please enter your administrator email correctly.");
+    }
+  };
+
   const handlePiiSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUser) return;
@@ -359,10 +442,21 @@ const EmployeeManagement: React.FC = () => {
       await setDoc(doc(db, 'users', selectedUser.uid, 'private', 'details'), {
         ...piiForm,
         updatedAt: serverTimestamp(),
-        updatedBy: 'admin'
+        updatedBy: user?.email || 'admin'
       });
+      
+      await logAction({
+        action: 'PII Update',
+        category: 'system',
+        details: `Updated sensitive PII for employee ${selectedUser.fullName} (${selectedUser.uid}).`,
+        entityId: selectedUser.uid,
+        userName: profile?.fullName || user?.displayName,
+        userEmail: user?.email
+      });
+
       setUserPii(piiForm);
       setIsEditingPii(false);
+      setIsVaultLocked(true); // Relock after save
       alert("Sensitive PII updated successfully.");
     } catch (err) {
       handleFirestoreError(err, 'write');
@@ -377,6 +471,15 @@ const EmployeeManagement: React.FC = () => {
     try {
       const promises = Array.from(selectedEmps).map((uid: string) => deleteDoc(doc(db, 'users', uid)));
       await Promise.all(promises);
+      
+      await logAction({
+        action: 'Bulk Personnel Deactivation',
+        category: 'personnel',
+        details: `Deactivated ${promises.length} employee records in bulk.`,
+        userName: profile?.fullName || user?.displayName,
+        userEmail: user?.email
+      });
+
       setSelectedEmps(new Set());
       fetchData();
       alert("Employees deactivated successfully.");
@@ -430,10 +533,23 @@ const EmployeeManagement: React.FC = () => {
       const id = doc(collection(db, 'users', selectedUser.uid, 'reviews')).id;
       await setDoc(doc(db, 'users', selectedUser.uid, 'reviews', id), {
         ...reviewForm,
+        id,
         employeeId: selectedUser.uid,
+        employeeName: selectedUser.fullName,
         reviewerId: user?.uid,
+        reviewerName: profile?.fullName || user?.email,
         createdAt: serverTimestamp()
       });
+      
+      await logAction({
+        action: 'Performance Review Recording',
+        category: 'performance',
+        details: `Recorded review for ${selectedUser.fullName} with rating ${reviewForm.overallRating}/5.`,
+        entityId: id,
+        userName: profile?.fullName || user?.displayName,
+        userEmail: user?.email
+      });
+
       setIsRecordingReview(false);
       fetchReviews(selectedUser);
       alert("Performance review recorded successfully.");
@@ -441,6 +557,91 @@ const EmployeeManagement: React.FC = () => {
       handleFirestoreError(err, 'write');
     } finally {
       setProcessing(false);
+    }
+  };
+
+  const downloadReviewPDF = async (review: any) => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF();
+      
+      // Header
+      doc.setFillColor(15, 23, 42); // slate-900 equivalent
+      doc.rect(0, 0, 210, 40, 'F');
+      
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(24);
+      doc.text('MINEAZY PERSONNEL AUDIT', 20, 25);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('OFFICIAL PERFORMANCE MATRIX REPORT', 20, 32);
+      
+      // Personnel Info
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Personnel Information', 20, 55);
+      
+      doc.setDrawColor(210, 180, 140); // mine-gold equivalentish
+      doc.setLineWidth(0.5);
+      doc.line(20, 58, 190, 58);
+      
+      doc.setFontSize(10);
+      doc.text(`Full Name: ${selectedUser?.fullName}`, 20, 68);
+      doc.text(`Designation: ${selectedUser?.jobTitle || 'N/A'}`, 20, 75);
+      doc.text(`Department: ${selectedUser?.department || 'N/A'}`, 20, 82);
+      doc.text(`Review Date: ${new Date(review.reviewDate).toLocaleDateString()}`, 140, 68);
+      doc.text(`Rating: ${review.overallRating}.0 / 5.0`, 140, 75);
+      
+      // Evaluation Matrix
+      doc.setFontSize(14);
+      doc.text('Operational Evaluation', 20, 100);
+      doc.line(20, 103, 190, 103);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      const feedbackLines = doc.splitTextToSize(review.feedback || 'No transcript record detected.', 170);
+      doc.text(feedbackLines, 20, 110);
+      
+      let nextY = 110 + (feedbackLines.length * 6) + 15;
+      
+      if (review.goals) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text('Strategic Objectives', 20, nextY);
+        doc.line(20, nextY + 3, 190, nextY + 3);
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        const goalLines = doc.splitTextToSize(review.goals, 170);
+        doc.text(goalLines, 20, nextY + 10);
+        nextY += (goalLines.length * 6) + 20;
+      }
+      
+      // Sig Section
+      if (nextY > 250) {
+        doc.addPage();
+        nextY = 30;
+      }
+      
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Authorization Digital Fingerprint', 20, nextY);
+      doc.line(20, nextY + 3, 100, nextY + 3);
+      
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Reviewer: ${review.reviewerName || 'System Admin'}`, 20, nextY + 12);
+      doc.text(`Status: ${review.status.toUpperCase()}`, 20, nextY + 17);
+      doc.text(`Generation Node: AIS-PROD-ZIMRA-HUB`, 20, nextY + 22);
+      doc.text(`Timestamp: ${new Date().toISOString()}`, 20, nextY + 27);
+      
+      doc.save(`Personnel_Review_${selectedUser?.fullName.replace(/\s+/g, '_')}_${review.reviewDate}.pdf`);
+    } catch (err) {
+      console.error("PDF Fail:", err);
+      alert("Failed to generate PDF audit report.");
     }
   };
 
@@ -460,13 +661,23 @@ const EmployeeManagement: React.FC = () => {
   };
 
   const filtered = employees.filter(e => {
-    const nameMatch = e.fullName.toLowerCase().includes(searchTerm.toLowerCase());
+    const searchLower = searchTerm.toLowerCase();
+    const nameMatch = e.fullName.toLowerCase().includes(searchLower);
+    const subName = subsidiaries.find(s => s.id === e.subsidiaryId)?.name || '';
+    
+    // In global search within the component, admins can also find by status, subsidiary name, or subsidiary ID
+    const adminSearchMatch = isAdmin && (
+      (e.status && e.status.toLowerCase().includes(searchLower)) ||
+      subName.toLowerCase().includes(searchLower) ||
+      (e.subsidiaryId && e.subsidiaryId.toLowerCase().includes(searchLower))
+    );
+
     const deptMatch = !deptFilter || e.department === deptFilter;
     const roleMatch = !roleFilter || e.role === roleFilter;
     const branchMatch = !branchFilter || e.branch === branchFilter;
     const statusMatch = !statusFilter || e.status === statusFilter;
     const subMatch = !subFilter || e.subsidiaryId === subFilter;
-    return nameMatch && deptMatch && roleMatch && branchMatch && statusMatch && subMatch;
+    return (nameMatch || adminSearchMatch) && deptMatch && roleMatch && branchMatch && statusMatch && subMatch;
   });
 
   const depts = Array.from(new Set(employees.map(e => e.department).filter(Boolean))) as string[];
@@ -489,6 +700,41 @@ const EmployeeManagement: React.FC = () => {
           <Plus size={18} /> Recruit Staff
         </button>
       </header>
+
+      {/* Modern Metrics Bar */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-mine-green transition-all">
+          <div className="space-y-1">
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Global Personnel</p>
+            <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">{employees.length}</p>
+          </div>
+          <div className="w-12 h-12 bg-mine-green/5 rounded-xl flex items-center justify-center text-mine-green group-hover:bg-mine-green group-hover:text-white transition-all">
+            <Users size={24} />
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-mine-gold transition-all">
+          <div className="space-y-1">
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Operational Entities</p>
+            <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">
+              {isSuperAdmin ? subsidiaries.length : (new Set(employees.map(e => e.subsidiaryId)).size || 1)}
+            </p>
+          </div>
+          <div className="w-12 h-12 bg-mine-gold/5 rounded-xl flex items-center justify-center text-mine-gold group-hover:bg-mine-gold group-hover:text-white transition-all">
+            <Building2 size={24} />
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-blue-500 transition-all">
+          <div className="space-y-1">
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Regional Branches</p>
+            <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">
+              {new Set(employees.filter(e => e.branch).map(e => e.branch)).size}
+            </p>
+          </div>
+          <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all">
+            <MapPin size={24} />
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <aside className="lg:col-span-1 space-y-6">
@@ -524,7 +770,7 @@ const EmployeeManagement: React.FC = () => {
                   type="text" 
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Employee name..."
+                  placeholder={isAdmin ? "Name, status, or subsidiary..." : "Employee name..."}
                   className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-green h-10 shadow-sm"
                 />
               </div>
@@ -876,14 +1122,21 @@ const EmployeeManagement: React.FC = () => {
                 <div className="flex items-center gap-3">
                   {activeDetailTab !== 'reviews' && (
                     <button 
-                      onClick={() => setIsEditingPii(!isEditingPii)}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isEditingPii ? 'bg-mine-gold text-mine-green shadow-lg shadow-mine-gold/20' : 'bg-white/10 hover:bg-white/20'}`}
+                      onClick={() => {
+                        if (isEditingPii) {
+                          setIsEditingPii(false);
+                          setIsVaultLocked(true);
+                        } else {
+                          setIsVerifyingAdmin(true);
+                        }
+                      }}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isEditingPii ? 'bg-red-500 text-white shadow-lg shadow-red-200' : 'bg-white/10 hover:bg-white/20'}`}
                     >
-                      {isEditingPii ? <><X size={14} /> Stop Editing</> : <><Edit2 size={14} /> Update Vault</>}
+                      {isEditingPii ? <><X size={14} /> Cancel Editing</> : <><ShieldCheck size={14} className="text-mine-gold" /> Unlock Vault</>}
                     </button>
                   )}
                   <button 
-                    onClick={() => { setSelectedUser(null); setIsEditingPii(false); setIsRecordingReview(false); }} 
+                    onClick={() => { setSelectedUser(null); setIsEditingPii(false); setIsVaultLocked(true); setIsRecordingReview(false); }} 
                     className="p-2 hover:bg-white/10 rounded-full transition-colors"
                   >
                     <X size={24} />
@@ -1089,7 +1342,7 @@ const EmployeeManagement: React.FC = () => {
                       </div>
                       {!isEditingPii && (
                         <button 
-                          onClick={() => setIsEditingPii(true)}
+                          onClick={() => setIsVerifyingAdmin(true)}
                           className="text-[10px] font-black text-mine-green uppercase tracking-widest hover:underline"
                         >
                           Modify Node
@@ -1265,12 +1518,22 @@ const EmployeeManagement: React.FC = () => {
                                       </div>
                                     </div>
                                   </div>
-                                  <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
-                                    rev.status === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 
-                                    rev.status === 'conducted' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-orange-50 text-orange-700 border-orange-100'
-                                  }`}>
-                                    {rev.status}
-                                  </span>
+                                  <div className="flex flex-col items-end gap-2">
+                                    <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
+                                      rev.status === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 
+                                      rev.status === 'conducted' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-orange-50 text-orange-700 border-orange-100'
+                                    }`}>
+                                      {rev.status}
+                                    </span>
+                                    {rev.status === 'completed' && (
+                                      <button 
+                                        onClick={() => downloadReviewPDF(rev)}
+                                        className="flex items-center gap-1 text-[10px] font-black text-mine-green uppercase tracking-widest hover:underline"
+                                      >
+                                        <FileDown size={12} /> Audit PDF
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                                 
                                 <div className="space-y-6 flex-1 relative z-10">
@@ -1468,6 +1731,59 @@ const EmployeeManagement: React.FC = () => {
                   {processing ? <RefreshCw className="animate-spin text-white" size={18} /> : <ShieldCheck size={18} />}
                   Confirm Bulk Assignment
                 </button>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {isVerifyingAdmin && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl overflow-hidden border border-gray-100"
+            >
+              <div className="bg-slate-900 p-8 text-white text-center">
+                <div className="w-16 h-16 bg-mine-gold/20 rounded-2xl flex items-center justify-center text-mine-gold mx-auto mb-4 border border-mine-gold/30">
+                  <ShieldCheck size={32} />
+                </div>
+                <h3 className="text-xl font-bold tracking-tight">Admin Authorization</h3>
+                <p className="text-[10px] text-gray-400 uppercase tracking-widest mt-2 font-black">Identity Verification Required</p>
+              </div>
+              <form onSubmit={handleUnlockVault} className="p-8 space-y-6">
+                <p className="text-xs text-gray-500 leading-relaxed text-center">
+                  You are attempting to access or modify sensitive <span className="text-gray-900 font-bold">Personnel PII/Financial Vault</span>. Please confirm your administrator email to proceed.
+                </p>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Confirmatory Email</label>
+                  <input 
+                    autoFocus
+                    required 
+                    type="email"
+                    value={authEmail} 
+                    onChange={(e) => setAuthEmail(e.target.value)} 
+                    placeholder="Enter your email to authorize"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm outline-none focus:ring-1 focus:ring-mine-green" 
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => { setIsVerifyingAdmin(false); setAuthEmail(''); }}
+                    className="flex-1 py-4 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    Abort
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="flex-[2] py-4 bg-mine-green text-white rounded-xl shadow-lg shadow-mine-green/20 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                  >
+                    Authorize Access
+                  </button>
+                </div>
               </form>
             </motion.div>
           </div>
