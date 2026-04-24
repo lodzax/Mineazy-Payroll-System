@@ -21,7 +21,6 @@ import {
 import { calculatePaye, calculateNssa, USD_TAX_BANDS, ZWG_TAX_BANDS } from '../lib/payrollUtils';
 import TaxCalculator from './TaxCalculator';
 import PayrollReports from './PayrollReports';
-import AuditTrail from './AuditTrail';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -978,11 +977,6 @@ const AdminDashboard: React.FC = () => {
         {/* Payroll Intelligence Reports */}
         <div className="lg:col-span-2">
           <PayrollReports />
-        </div>
-
-        {/* Audit Trail Intelligence */}
-        <div className="lg:col-span-2">
-          <AuditTrail subsidiaryId={profile?.subsidiaryId} isSuperAdmin={isSuperAdmin} />
         </div>
       </div>
 

@@ -31,6 +31,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import AuditTrail from './AuditTrail';
 
 const Pagination: React.FC<{
   currentPage: number;
@@ -1789,6 +1790,11 @@ const EmployeeManagement: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Audit Trail Intelligence */}
+      <section className="mt-12">
+        <AuditTrail subsidiaryId={profile?.subsidiaryId} isSuperAdmin={isSuperAdmin} />
+      </section>
 
     </div>
   );
