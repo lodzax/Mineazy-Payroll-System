@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, addDoc, updateDoc, doc, serverTimestamp, query, orderBy } from 'firebase/firestore';
-import { db, handleFirestoreError } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { Building2, Plus, Edit2, Shield, Trash2, CheckCircle2, AlertCircle, X, Search, Globe, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -14,8 +13,7 @@ const SubsidiaryManagement: React.FC = () => {
   const [editingSub, setEditingSub] = useState<any | null>(null);
   const [form, setForm] = useState({
     name: '',
-    taxId: '',
-    registrationNumber: '',
+    tax_number: '',
     address: '',
     country: 'Zimbabwe',
     currency: 'USD',
@@ -25,11 +23,15 @@ const SubsidiaryManagement: React.FC = () => {
   const fetchSubsidiaries = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'subsidiaries'), orderBy('createdAt', 'desc'));
-      const snap = await getDocs(q);
-      setSubsidiaries(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const { data, error } = await supabase
+        .from('subsidiaries')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setSubsidiaries(data || []);
     } catch (err) {
-      handleFirestoreError(err, 'list');
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -44,20 +46,32 @@ const SubsidiaryManagement: React.FC = () => {
     if (!isSuperAdmin) return;
     try {
       if (editingSub) {
-        await updateDoc(doc(db, 'subsidiaries', editingSub.id), {
-          ...form,
-          updatedAt: serverTimestamp()
-        });
+        const { error } = await supabase
+          .from('subsidiaries')
+          .update({
+            name: form.name,
+            tax_number: form.tax_number,
+            address: form.address,
+            currency: form.currency,
+            // Add other fields if needed
+          })
+          .eq('id', editingSub.id);
+        if (error) throw error;
       } else {
-        await addDoc(collection(db, 'subsidiaries'), {
-          ...form,
-          createdAt: serverTimestamp()
-        });
+        const { error } = await supabase
+          .from('subsidiaries')
+          .insert({
+            name: form.name,
+            tax_number: form.tax_number,
+            address: form.address,
+            currency: form.currency,
+          });
+        if (error) throw error;
       }
       setIsModalOpen(false);
       fetchSubsidiaries();
     } catch (err) {
-      handleFirestoreError(err, 'write');
+      console.error(err);
     }
   };
 
@@ -72,7 +86,7 @@ const SubsidiaryManagement: React.FC = () => {
           <p className="text-sm text-gray-500">Configure and monitor subsidiary corporate nodes</p>
         </div>
         <button 
-          onClick={() => { setEditingSub(null); setForm({ name: '', taxId: '', registrationNumber: '', address: '', country: 'Zimbabwe', currency: 'USD', status: 'active' }); setIsModalOpen(true); }}
+          onClick={() => { setEditingSub(null); setForm({ name: '', tax_number: '', address: '', country: 'Zimbabwe', currency: 'USD', status: 'active' }); setIsModalOpen(true); }}
           className="btn btn-primary flex items-center gap-2"
         >
           <Plus size={18} /> Spawn Subsidiary
@@ -94,7 +108,18 @@ const SubsidiaryManagement: React.FC = () => {
               </div>
               <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button 
-                  onClick={() => { setEditingSub(sub); setForm({ ...sub }); setIsModalOpen(true); }}
+                  onClick={() => { 
+                    setEditingSub(sub); 
+                    setForm({ 
+                      name: sub.name || '', 
+                      tax_number: sub.tax_number || '', 
+                      address: sub.address || '', 
+                      country: sub.country || 'Zimbabwe', 
+                      currency: sub.currency || 'USD', 
+                      status: sub.status || 'active' 
+                    }); 
+                    setIsModalOpen(true); 
+                  }}
                   className="p-2 text-gray-400 hover:text-mine-green"
                 >
                   <Edit2 size={16} />
@@ -112,7 +137,7 @@ const SubsidiaryManagement: React.FC = () => {
             <div className="mt-6 pt-4 border-t border-gray-100 grid grid-cols-2 gap-4">
               <div>
                 <p className="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Tax Reference</p>
-                <p className="text-xs font-mono font-bold text-gray-700">{sub.taxId || 'N/A'}</p>
+                <p className="text-xs font-mono font-bold text-gray-700">{sub.tax_number || 'N/A'}</p>
               </div>
               <div>
                 <p className="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Status</p>
@@ -188,8 +213,8 @@ const SubsidiaryManagement: React.FC = () => {
                       <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5">Tax Representative ID</label>
                       <input 
                         type="text" 
-                        value={form.taxId}
-                        onChange={(e) => setForm({ ...form, taxId: e.target.value })}
+                        value={form.tax_number}
+                        onChange={(e) => setForm({ ...form, tax_number: e.target.value })}
                         className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-green"
                         placeholder="BP-88129-ZW"
                       />

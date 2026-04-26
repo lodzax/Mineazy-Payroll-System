@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { FileText, Download, Eye, X, ChevronLeft, ChevronRight, MapPin, Loader2, ShieldCheck, Printer } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -53,13 +52,34 @@ const PayslipList: React.FC = () => {
   useEffect(() => {
     if (user) {
       const fetchPayslips = async () => {
-        const q = query(
-          collection(db, 'payslips'),
-          where('employeeId', '==', user.uid),
-          orderBy('month', 'desc')
-        );
-        const snap = await getDocs(q);
-        setPayslips(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const { data, error } = await supabase
+          .from('payslips')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('month_year', { ascending: false });
+
+        if (error) {
+          console.error(error);
+        } else {
+          setPayslips((data || []).map(p => ({
+            ...p,
+            month: p.month_year,
+            netPay: p.net_pay,
+            baseSalary: p.base_salary,
+            overtimePay: p.overtime_pay,
+            standardHours: p.standard_hours,
+            overtimeHours: p.overtime_hours,
+            grossPay: p.gross_pay,
+            taxAmount: p.tax_amount,
+            aidsLevy: p.aids_levy,
+            nssaDeduction: p.nssa_deduction,
+            loanDeductions: p.loan_deductions,
+            totalDeductions: p.total_deductions,
+            leaveBalance: p.leave_balance,
+            isPublished: p.is_published,
+            generatedAt: p.generated_at
+          })));
+        }
       };
       fetchPayslips();
     }

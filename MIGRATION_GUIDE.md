@@ -1,6 +1,6 @@
 # Supabase Migration Guide
 
-This application has been prepared to support Supabase as a backend. Follow these steps to complete the migration from Firebase.
+This application has been updated to use Supabase for Authentication and Audit Logging. Follow these steps to complete the remaining database migration.
 
 ## 1. Database Setup
 
@@ -13,29 +13,20 @@ This application has been prepared to support Supabase as a backend. Follow thes
 
 1.  In your Supabase project, go to **Project Settings > API**.
 2.  Copy your `Project URL` and `anon public` key.
-3.  Add them to your `.env` (or secrets in AI Studio):
+3.  Add them to your `.env` (or secrets in AI Studio settings):
     *   `VITE_SUPABASE_URL=your_project_url`
     *   `VITE_SUPABASE_ANON_KEY=your_anon_key`
 
-## 3. Swapping Authentication
+## 3. Current State
 
-To switch to Supabase Auth:
+*   **Authentication**: Switched to Supabase. Components still use `useAuth()`, but the underlying logic is now Supabase-powered.
+*   **Audit Logging**: Switched to Supabase `audit_logs` table.
+*   **Other Data**: Currently still pointing to Firebase Firestore. You will need to migrate each service layer (Employee management, Payroll, etc.) to use Supabase if you wish to fully exit Firebase.
 
-1.  Open `src/main.tsx`.
-2.  Replace `AuthProvider` with `SupabaseAuthProvider` from `./lib/SupabaseAuthContext`.
-3.  Update components to use `useSupabaseAuth()` instead of `useAuth()`.
-
-## 4. Swapping Services
-
-The following services have Supabase equivalents ready:
-*   `loggerService.ts` -> `loggerService.supabase.ts`
-
-To use them, simply update the imports in your components.
-
-## 5. Migrating Data
+## 4. Migrating Data
 
 If you have existing data in Firestore, you will need to export it (e.g., to JSON/CSV) and import it into Supabase via the dashboard.
 
-## 6. Authentication Providers
+## 5. Authentication Providers
 
 Ensure you enable **Google Auth** (or your preferred provider) in the Supabase Dashboard under **Authentication > Providers** if you wish to maintain the same login flow.

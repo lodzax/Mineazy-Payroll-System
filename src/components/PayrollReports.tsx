@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
 import * as XLSX from 'xlsx';
@@ -20,15 +19,15 @@ import {
 import { motion } from 'motion/react';
 
 const REPORT_TYPES = [
-  { id: 'salary_summary', name: 'Salary Summaries', icon: <TrendingUp size={16} />, collection: 'payslips' },
-  { id: 'tax_report', name: 'Tax Reports (PAYE/NSSA)', icon: <FileText size={16} />, collection: 'payslips' },
-  { id: 'loan_deduction', name: 'Loan Deductions', icon: <CreditCard size={16} />, collection: 'payslips' },
-  { id: 'timesheets', name: 'Timesheets Audit', icon: <Clock size={16} />, collection: 'timesheets' },
-  { id: 'leave_applications', name: 'Leave Applications', icon: <LogOut size={16} />, collection: 'leave_applications' }
+  { id: 'salary_summary', name: 'Salary Summaries', icon: <TrendingUp size={16} />, table: 'payslips' },
+  { id: 'tax_report', name: 'Tax Reports (PAYE/NSSA)', icon: <FileText size={16} />, table: 'payslips' },
+  { id: 'loan_deduction', name: 'Loan Deductions', icon: <CreditCard size={16} />, table: 'payslips' },
+  { id: 'timesheets', name: 'Timesheets Audit', icon: <Clock size={16} />, table: 'timesheets' },
+  { id: 'leave_requests', name: 'Leave Applications', icon: <LogOut size={16} />, table: 'leave_requests' }
 ];
 
 const PayrollReports: React.FC = () => {
-  const { profile, isSuperAdmin } = useAuth();
+  const { profile, isSuperAdmin, user } = useAuth();
   const [reportType, setReportType] = useState('salary_summary');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
@@ -42,92 +41,71 @@ const PayrollReports: React.FC = () => {
       const selectedReport = REPORT_TYPES.find(r => r.id === reportType);
       if (!selectedReport) return;
 
-      const collRef = collection(db, selectedReport.collection);
-      let q = query(collRef);
+      let query = supabase.from(selectedReport.table).select('*');
 
-      // Filtering by subsidiary for regular admins
-      if (!isSuperAdmin && profile?.subsidiaryId) {
-        q = query(q, where('subsidiaryId', '==', profile.subsidiaryId));
-      }
-
-      // Special handling for date filtering based on collection type
-      if (selectedReport.collection === 'payslips' || selectedReport.collection === 'timesheets') {
-        // These collections typically use 'month' (YYYY-MM)
-        q = query(q, where('month', '>=', startDate), where('month', '<=', endDate));
-      } else if (selectedReport.collection === 'leave_applications') {
-        // Leave uses startDate/endDate strings or Timestamps?
-        // Based on AdminDashboard, it looks like strings (YYYY-MM-DD)
-        // We'll filter leave by startDate in the selected range
+      // Date filtering
+      if (selectedReport.table === 'payslips' || selectedReport.table === 'timesheets') {
+        query = query.gte('month_year', startDate).lte('month_year', endDate);
+      } else if (selectedReport.table === 'leave_requests') {
         const startDay = `${startDate}-01`;
-        const endDay = `${endDate}-31`; // Rough approximation for end of month
-        q = query(q, where('startDate', '>=', startDay), where('startDate', '<=', endDay));
+        const endDay = `${endDate}-31`;
+        query = query.gte('start_date', startDay).lte('start_date', endDay);
       }
 
-      const snapshot = await getDocs(q);
-      const rawData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const { data: rawData, error: fetchError } = await query;
+      if (fetchError) throw fetchError;
 
-      if (rawData.length === 0) {
+      if (!rawData || rawData.length === 0) {
         setError('No data found for the selected range and parameters.');
         setIsGenerating(false);
         return;
       }
 
-      // Post-process data for export based on report type
-      let exportData: any[] = [];
+      // Fetch employees for display names
+      const { data: usersData, error: userError } = await supabase.from('users').select('id, full_name');
+      if (userError) throw userError;
+      const empMap = new Map((usersData || []).map(u => [u.id, u.full_name]));
 
-      // Fetch employees for display names if needed
-      const empSnap = await getDocs(collection(db, 'users'));
-      const empMap = new Map(empSnap.docs.map(d => [d.id, d.data().fullName]));
+      let exportData: any[] = [];
 
       switch (reportType) {
         case 'salary_summary':
           exportData = rawData.map((d: any) => ({
-            'Employee Name': empMap.get(d.employeeId) || 'Unknown',
-            'Period': d.month,
-            'Basic Salary': d.baseSalary,
-            'Gross Pay': d.grossPay,
-            'Total Deductions': d.totalDeductions,
-            'Net Pay': d.netPay,
+            'Employee Name': empMap.get(d.user_id) || 'Unknown',
+            'Period': d.month_year,
+            'Basic Salary': d.basic_salary,
+            'Gross Pay': d.basic_salary + (d.allowances || 0),
+            'Total Deductions': d.deductions + d.paye + d.nssa,
+            'Net Pay': d.net_pay,
             'Currency': d.currency,
-            'Status': d.isPublished ? 'Published' : 'Draft'
           }));
           break;
         case 'tax_report':
           exportData = rawData.map((d: any) => ({
-            'Employee Name': empMap.get(d.employeeId) || 'Unknown',
-            'Period': d.month,
-            'Gross Pay': d.grossPay,
-            'PAYE Tax': d.taxAmount,
-            'AIDS Levy': d.aidsLevy,
-            'NSSA Deduction': d.nssaDeduction,
-            'Currency': d.currency
-          }));
-          break;
-        case 'loan_deduction':
-          exportData = rawData.filter((d: any) => d.loanDeductions > 0).map((d: any) => ({
-            'Employee Name': empMap.get(d.employeeId) || 'Unknown',
-            'Period': d.month,
-            'Gross Pay': d.grossPay,
-            'Loan Repayment': d.loanDeductions,
+            'Employee Name': empMap.get(d.user_id) || 'Unknown',
+            'Period': d.month_year,
+            'Gross Pay': d.basic_salary + (d.allowances || 0),
+            'PAYE Tax': d.paye,
+            'NSSA Deduction': d.nssa,
             'Currency': d.currency
           }));
           break;
         case 'timesheets':
           exportData = rawData.map((d: any) => ({
-            'Employee Name': empMap.get(d.employeeId) || d.employeeName || 'Unknown',
-            'Date/Month': d.date || d.month,
-            'Hours Worked': d.hoursWorked,
-            'Overtime Hours': d.overtimeHours,
+            'Employee Name': empMap.get(d.user_id) || 'Unknown',
+            'Date': d.date,
+            'Month': d.month_year,
+            'Hours Worked': d.hours_worked,
+            'Overtime Hours': d.overtime_hours,
             'Status': d.status,
-            'Reviewed By': d.reviewedBy || 'N/A'
           }));
           break;
-        case 'leave_applications':
+        case 'leave_requests':
           exportData = rawData.map((d: any) => ({
-            'Employee Name': empMap.get(d.employeeId) || 'Unknown',
+            'Employee Name': empMap.get(d.user_id) || 'Unknown',
             'Type': d.type,
-            'Start Date': d.startDate,
-            'End Date': d.endDate,
+            'Start Date': d.start_date,
+            'End Date': d.end_date,
             'Status': d.status,
             'Reason': d.reason || ''
           }));
@@ -139,7 +117,6 @@ const PayrollReports: React.FC = () => {
         return;
       }
 
-      // Export to Excel
       const ws = XLSX.utils.json_to_sheet(exportData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Payroll Report");
@@ -149,8 +126,8 @@ const PayrollReports: React.FC = () => {
         action: 'Report Generation',
         category: 'report',
         details: `Generated ${selectedReport.name} for period ${startDate} to ${endDate}. Records: ${exportData.length}`,
-        userName: profile?.fullName,
-        userEmail: profile?.email || ''
+        userName: profile?.fullName || user?.email,
+        userEmail: user?.email || ''
       });
 
     } catch (err: any) {

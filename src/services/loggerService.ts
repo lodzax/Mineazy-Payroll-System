@@ -1,5 +1,4 @@
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 export type AuditCategory = 'payroll' | 'personnel' | 'system' | 'financial' | 'performance' | 'report';
 
@@ -10,26 +9,46 @@ export interface AuditLogEntry {
   entityId?: string;
   userName?: string;
   userEmail?: string;
+  subsidiaryId?: string;
 }
 
 /**
- * Logs a system action for audit purposes.
- * This is used to track administrator and employee activities globally.
+ * Logs a system action for audit purposes using Supabase.
  */
 export async function logAction(entry: AuditLogEntry) {
-  const user = auth.currentUser;
-  if (!user) return;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) return;
 
   try {
-    await addDoc(collection(db, 'audit_logs'), {
-      ...entry,
-      userId: user.uid,
-      userName: entry.userName || user.displayName || 'System User',
-      userEmail: entry.userEmail || user.email || 'N/A',
-      timestamp: serverTimestamp(),
-    });
+    // If subsidiaryId isn't provided, try to get it from the user's profile
+    let subId = entry.subsidiaryId;
+    if (!subId) {
+      const { data: profile } = await supabase
+        .from('users')
+        .select('subsidiary_id')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      if (profile) subId = profile.subsidiary_id;
+    }
+
+    const { error } = await supabase
+      .from('audit_logs')
+      .insert({
+        action: entry.action,
+        category: entry.category,
+        details: {
+          details: entry.details,
+          entityId: entry.entityId,
+          userName: entry.userName || session.user.user_metadata?.full_name || 'System User',
+          userEmail: entry.userEmail || session.user.email,
+        },
+        user_id: session.user.id,
+        subsidiary_id: subId,
+        timestamp: new Date().toISOString()
+      });
+
+    if (error) throw error;
   } catch (error) {
-    console.error("Audit Logging Failure:", error);
-    // We don't throw here to avoid breaking the main UI flow if logging fails
+    console.error("Supabase Audit Logging Failure:", error);
   }
 }

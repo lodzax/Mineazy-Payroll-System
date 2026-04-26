@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, limit, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { 
   Clock, 
@@ -36,31 +35,37 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
         setLoading(true);
         try {
           // 1. Fetch Latest Payslip
-          const payslipQ = query(
-            collection(db, 'payslips'),
-            where('employeeId', '==', user.uid),
-            orderBy('generatedAt', 'desc'),
-            limit(1)
-          );
-          const payslipSnap = await getDocs(payslipQ);
-          if (!payslipSnap.empty) {
-            setRecentPayslip(payslipSnap.docs[0].data());
+          const { data: payslipData, error: payslipError } = await supabase
+            .from('payslips')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('generated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (payslipError) throw payslipError;
+          if (payslipData) {
+            // Map Supabase snake_case to app camelCase if needed, but for now just use data
+            setRecentPayslip({
+              ...payslipData,
+              netPay: payslipData.net_pay // for compatibility with template
+            });
           }
 
           // 2. Fetch Recent Activities (Leaves, Timesheets, Loans)
-          const [leavesSnap, timesheetsSnap, loansSnap] = await Promise.all([
-            getDocs(query(collection(db, 'leave_applications'), where('employeeId', '==', user.uid), orderBy('createdAt', 'desc'), limit(3))),
-            getDocs(query(collection(db, 'timesheets'), where('employeeId', '==', user.uid), orderBy('submittedAt', 'desc'), limit(3))),
-            getDocs(query(collection(db, 'loan_applications'), where('employeeId', '==', user.uid), orderBy('createdAt', 'desc'), limit(3)))
+          const [leavesRes, timesheetsRes, loansRes] = await Promise.all([
+            supabase.from('leave_requests').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(3),
+            supabase.from('timesheets').select('*').eq('user_id', user.id).order('submitted_at', { ascending: false }).limit(3),
+            supabase.from('loan_requests').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(3)
           ]);
 
           const combined = [
-            ...leavesSnap.docs.map(d => ({ ...d.data() as any, id: d.id, actType: 'Leave Application' })),
-            ...timesheetsSnap.docs.map(d => ({ ...d.data() as any, id: d.id, actType: 'Timesheet' })),
-            ...loansSnap.docs.map(d => ({ ...d.data() as any, id: d.id, actType: 'Loan Application' }))
+            ...(leavesRes.data || []).map(d => ({ ...d, id: d.id, actType: 'Leave Application', status: d.status, createdAt: d.created_at })),
+            ...(timesheetsRes.data || []).map(d => ({ ...d, id: d.id, actType: 'Timesheet', status: d.status, createdAt: d.submitted_at })),
+            ...(loansRes.data || []).map(d => ({ ...d, id: d.id, actType: 'Loan Application', status: d.status, createdAt: d.created_at }))
           ].sort((a: any, b: any) => {
-            const dateA = a.createdAt?.toMillis?.() || a.submittedAt?.toMillis?.() || 0;
-            const dateB = b.createdAt?.toMillis?.() || b.submittedAt?.toMillis?.() || 0;
+            const dateA = new Date(a.createdAt).getTime() || 0;
+            const dateB = new Date(b.createdAt).getTime() || 0;
             return dateB - dateA;
           }).slice(0, 5);
 
@@ -146,7 +151,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
                   {activities.map((act) => (
                     <tr key={act.id} className="hover:bg-gray-50 transition-colors">
                       <td className="py-3 font-mono text-gray-400">
-                        {act.date || (act.createdAt?.toDate ? act.createdAt.toDate().toLocaleDateString() : (act.submittedAt?.toDate ? act.submittedAt.toDate().toLocaleDateString() : 'N/A'))}
+                        {act.date || (act.createdAt ? new Date(act.createdAt).toLocaleDateString() : 'N/A')}
                       </td>
                       <td className="py-3 font-semibold text-gray-800 uppercase tracking-tight text-[11px]">{act.actType}</td>
                       <td className="py-3">
@@ -259,9 +264,19 @@ const PerformanceView: React.FC = () => {
     if (user) {
       const fetchReviews = async () => {
         try {
-          const q = query(collection(db, 'users', user.uid, 'reviews'), orderBy('reviewDate', 'desc'));
-          const snap = await getDocs(q);
-          setReviews(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+          const { data, error } = await supabase
+            .from('personnel_reviews') // Assuming this table exists or I should add it
+            .select('*')
+            .eq('user_id', user.id)
+            .order('review_date', { ascending: false });
+
+          if (error) throw error;
+          const mappedData = (data || []).map(rev => ({
+            ...rev,
+            reviewDate: rev.review_date,
+            overallRating: rev.overall_rating,
+          }));
+          setReviews(mappedData);
         } catch (err) {
           console.error("Review fetch error:", err);
         } finally {

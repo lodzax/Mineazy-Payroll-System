@@ -11,7 +11,6 @@ import {
   Users,
   Building2
 } from 'lucide-react';
-import { auth } from '../lib/firebase';
 import { useAuth } from '../lib/AuthContext';
 
 interface SidebarProps {
@@ -21,7 +20,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdmin }) => {
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, signOut } = useAuth();
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -64,7 +63,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdmin }) =
 
       <div className="p-4 border-t border-gray-100 mb-2">
         <button 
-          onClick={() => auth.signOut()}
+          onClick={() => signOut()}
           className="w-full flex items-center gap-3 px-3 py-2 text-gray-500 hover:text-red-600 text-xs font-bold uppercase tracking-wider transition-colors"
         >
           <LogOut size={16} />

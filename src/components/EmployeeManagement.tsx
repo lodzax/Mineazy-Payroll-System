@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, getDocs, updateDoc, doc, addDoc, serverTimestamp, deleteDoc, setDoc, getDoc, orderBy } from 'firebase/firestore';
-import { db, handleFirestoreError } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
 import { 
@@ -165,6 +164,7 @@ const EmployeeManagement: React.FC = () => {
   const [employees, setEmployees] = useState<any[]>([]);
   const [subsidiaries, setSubsidiaries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
@@ -183,7 +183,7 @@ const EmployeeManagement: React.FC = () => {
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmp, setEditingEmp] = useState<any | null>(null);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<any>({
     fullName: '',
     email: '',
     role: 'employee',
@@ -193,7 +193,9 @@ const EmployeeManagement: React.FC = () => {
     subsidiaryId: '',
     baseSalary: 1000,
     currency: 'USD',
-    status: 'active'
+    status: 'active',
+    payrollGroup: 'General',
+    password: 'Mining2026!'
   });
 
   // PII Visibility & Editing state
@@ -271,29 +273,45 @@ const EmployeeManagement: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const usersQuery = isSuperAdmin 
-        ? collection(db, 'users') 
-        : query(collection(db, 'users'), where('subsidiaryId', '==', profile?.subsidiaryId || 'none'));
-
-      const [userSnap, subSnap] = await Promise.all([
-        getDocs(usersQuery),
-        isSuperAdmin ? getDocs(collection(db, 'subsidiaries')) : Promise.resolve({ docs: [] } as any)
-      ]);
+      let queryBuilder = supabase.from('users').select('*').order('created_at', { ascending: false });
       
-      const allEmps: any[] = userSnap.docs.map(doc => ({ ...doc.data() as any, uid: doc.id }));
-      // If not super admin, filter by profile's subsidiary
-      if (!isSuperAdmin && profile?.subsidiaryId) {
-        setEmployees(allEmps.filter(e => e.subsidiaryId === profile.subsidiaryId));
-      } else {
-        setEmployees(allEmps);
+      if (!isSuperAdmin) {
+        if (profile?.subsidiaryId) {
+          queryBuilder = queryBuilder.eq('subsidiary_id', profile.subsidiaryId);
+        } else {
+          // If no subsidiary assigned, they can't see employees (safety)
+          queryBuilder = queryBuilder.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
+        }
       }
 
+      const { data: usersData, error: usersError } = await queryBuilder;
+      
+      let subsData: any[] = [];
       if (isSuperAdmin) {
-        setSubsidiaries(subSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        const { data, error } = await supabase.from('subsidiaries').select('*');
+        if (!error) subsData = data || [];
       }
-    } catch (err) {
+
+      if (usersError) throw usersError;
+
+      const allEmps: any[] = (usersData || []).map(u => ({
+        ...u,
+        uid: u.id,
+        fullName: u.full_name,
+        jobTitle: u.job_title,
+        subsidiaryId: u.subsidiary_id,
+        baseSalary: u.base_salary,
+        payrollGroup: u.payroll_group || 'General',
+        createdAt: u.created_at
+      }));
+
+      setEmployees(allEmps);
+      setSubsidiaries(subsData.map(s => ({ ...s, id: s.id })));
+    } catch (err: any) {
       console.error("Failed to fetch data:", err);
+      setError(err.message || "Failed to synchronize with personnel ledger.");
     } finally {
       setLoading(false);
     }
@@ -303,43 +321,88 @@ const EmployeeManagement: React.FC = () => {
     e.preventDefault();
     setProcessing(true);
     try {
+      // Security check for Super Admin role
+      const authorizedSuperAdmins = ['lodzax@gmail.com', 'accounts@mineazy.co.zw'];
+      if (form.role === 'superadmin' && !authorizedSuperAdmins.includes(form.email.toLowerCase())) {
+        alert("Security Breach: Unauthorized email for Super Admin elevation. Operation cancelled.");
+        setProcessing(false);
+        return;
+      }
+
       const dataToSave = {
-        ...form,
-        // Ensure subsidiaryId is set if not super admin
-        subsidiaryId: isSuperAdmin ? form.subsidiaryId : (profile?.subsidiaryId || '')
+        full_name: form.fullName,
+        email: form.email,
+        role: form.role,
+        department: form.department,
+        job_title: form.jobTitle,
+        branch: form.branch,
+        subsidiary_id: isSuperAdmin ? (form.subsidiaryId || null) : (profile?.subsidiaryId || null),
+        base_salary: Number(form.baseSalary),
+        currency: form.currency,
+        status: form.status,
+        payroll_group: form.payrollGroup
       };
 
       if (editingEmp) {
-        await updateDoc(doc(db, 'users', editingEmp.uid), dataToSave);
+        const { error } = await supabase.from('users').update(dataToSave).eq('id', editingEmp.uid);
+        if (error) throw error;
+
         await logAction({
           action: 'Personnel Update',
           category: 'personnel',
           details: `Updated details for employee ${editingEmp.fullName} (${editingEmp.uid}).`,
           entityId: editingEmp.uid,
-          userName: profile?.fullName || user?.displayName,
+          userName: profile?.fullName || user?.email,
           userEmail: user?.email
         });
       } else {
-        const id = doc(collection(db, 'users')).id;
-        await setDoc(doc(db, 'users', id), {
-          ...dataToSave,
-          uid: id,
-          status: dataToSave.status || 'active',
-          createdAt: serverTimestamp()
+        // Use our new server-side API for automatic account creation
+        const session = await supabase.auth.getSession();
+        const response = await fetch('/api/admin/create-user', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.data.session?.access_token}`
+          },
+          body: JSON.stringify({
+            email: form.email,
+            fullName: form.fullName,
+            password: form.password,
+            metadata: {
+              role: form.role,
+              department: form.department,
+              job_title: form.jobTitle,
+              branch: form.branch,
+              subsidiary_id: dataToSave.subsidiary_id,
+              base_salary: dataToSave.base_salary,
+              currency: form.currency,
+              status: form.status,
+              payroll_group: form.payrollGroup
+            }
+          })
         });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.error || 'Failed to create personnel account');
+        }
+
+        const result = await response.json();
+
         await logAction({
           action: 'Personnel Recruitment',
           category: 'personnel',
-          details: `Created new employee record for ${dataToSave.fullName} in ${dataToSave.department}.`,
-          entityId: id,
-          userName: profile?.fullName || user?.displayName,
+          details: `Created new employee record and auth account for ${form.fullName}. Status: Active.`,
+          entityId: result.user.id,
+          userName: profile?.fullName || user?.email,
           userEmail: user?.email
         });
       }
       setIsModalOpen(false);
       fetchData();
     } catch (err) {
-      handleFirestoreError(err, editingEmp ? 'update' : 'create');
+      console.error(err);
+      alert('Operation failed. Check console for details.');
     } finally {
       setProcessing(false);
     }
@@ -349,75 +412,64 @@ const EmployeeManagement: React.FC = () => {
     if (!window.confirm("Are you sure? This will permanently remove the record.")) return;
     setProcessing(true);
     try {
-      await deleteDoc(doc(db, 'users', uid));
+      const { error } = await supabase.from('users').delete().eq('id', uid);
+      if (error) throw error;
+
       await logAction({
         action: 'Personnel Deletion',
         category: 'personnel',
         details: `Deleted employee record with UID ${uid}.`,
         entityId: uid,
-        userName: profile?.fullName || user?.displayName,
+        userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
       fetchData();
     } catch (err) {
-      handleFirestoreError(err, 'delete');
+      console.error(err);
+      alert('Delete failed.');
     } finally {
       setProcessing(false);
     }
   };
 
-  const fetchPii = async (user: any, initialTab: 'pii' | 'banking' = 'pii') => {
-    setSelectedUser(user);
+  const fetchPii = async (emp: any, initialTab: 'pii' | 'banking' = 'pii') => {
+    setSelectedUser(emp);
     setActiveDetailTab(initialTab);
     setFetchingPii(true);
     setUserPii(null);
     setIsEditingPii(false);
     try {
-      const piiSnap = await getDoc(doc(db, 'users', user.uid, 'private', 'details'));
+      const { data, error } = await supabase.from('users').select('*').eq('id', emp.uid).single();
       
+      if (error) throw error;
+
       await logAction({
         action: 'PII Access',
         category: 'system',
-        details: `Accessed sensitive ${initialTab} data for employee ${user.fullName} (${user.uid}).`,
-        entityId: user.uid,
-        userName: profile?.fullName || user?.displayName,
+        details: `Accessed sensitive ${initialTab} data for employee ${emp.fullName} (${emp.uid}).`,
+        userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
 
-      if (piiSnap.exists()) {
-        const data = piiSnap.data();
+      if (data) {
         setUserPii(data);
         setPiiForm({
           phone: data.phone || '',
           address: data.address || '',
-          emergencyContact: data.emergencyContact || '',
-          emergencyRelation: data.emergencyRelation || '',
-          emergencyPhone: data.emergencyPhone || '',
-          nationalId: data.nationalId || '',
-          medicalAidNo: data.medicalAidNo || '',
-          bankName: data.bankName || '',
-          accountNumber: data.accountNumber || '',
-          branchCode: data.branchCode || '',
-          accountName: data.accountName || ''
-        });
-      } else {
-        setUserPii({});
-        setPiiForm({
-          phone: '',
-          address: '',
-          emergencyContact: '',
-          emergencyRelation: '',
-          emergencyPhone: '',
-          nationalId: '',
-          medicalAidNo: '',
-          bankName: '',
-          accountNumber: '',
-          branchCode: '',
-          accountName: ''
+          emergencyContact: data.emergency_contact || '',
+          emergencyRelation: data.emergency_relation || '',
+          emergencyPhone: data.emergency_phone || '',
+          nationalId: data.national_id || '',
+          medicalAidNo: data.medical_aid_no || '',
+          bankName: data.bank_name || '',
+          accountNumber: data.account_number || '',
+          branchCode: data.branch_code || '',
+          accountName: data.account_name || ''
         });
       }
     } catch (err) {
-      handleFirestoreError(err, 'get');
+      console.error(err);
+      alert('Failed to fetch PII');
     } finally {
       setFetchingPii(false);
     }
@@ -440,27 +492,38 @@ const EmployeeManagement: React.FC = () => {
     if (!selectedUser) return;
     setProcessing(true);
     try {
-      await setDoc(doc(db, 'users', selectedUser.uid, 'private', 'details'), {
-        ...piiForm,
-        updatedAt: serverTimestamp(),
-        updatedBy: user?.email || 'admin'
-      });
+      const { error } = await supabase.from('users').update({
+        phone: piiForm.phone,
+        address: piiForm.address,
+        emergency_contact: piiForm.emergencyContact,
+        emergency_relation: piiForm.emergencyRelation,
+        emergency_phone: piiForm.emergencyPhone,
+        national_id: piiForm.nationalId,
+        medical_aid_no: piiForm.medicalAidNo,
+        bank_name: piiForm.bankName,
+        account_number: piiForm.accountNumber,
+        branch_code: piiForm.branchCode,
+        account_name: piiForm.accountName,
+        updated_at: new Date().toISOString()
+      }).eq('id', selectedUser.uid);
+
+      if (error) throw error;
       
       await logAction({
         action: 'PII Update',
         category: 'system',
         details: `Updated sensitive PII for employee ${selectedUser.fullName} (${selectedUser.uid}).`,
-        entityId: selectedUser.uid,
-        userName: profile?.fullName || user?.displayName,
+        userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
 
-      setUserPii(piiForm);
+      setUserPii({ ...userPii, ...piiForm });
       setIsEditingPii(false);
-      setIsVaultLocked(true); // Relock after save
+      setIsVaultLocked(true);
       alert("Sensitive PII updated successfully.");
     } catch (err) {
-      handleFirestoreError(err, 'write');
+      console.error(err);
+      alert('Update failed');
     } finally {
       setProcessing(false);
     }
@@ -470,14 +533,15 @@ const EmployeeManagement: React.FC = () => {
     if (!window.confirm(`Are you sure you want to deactivate ${selectedEmps.size} employee(s)?`)) return;
     setProcessing(true);
     try {
-      const promises = Array.from(selectedEmps).map((uid: string) => deleteDoc(doc(db, 'users', uid)));
-      await Promise.all(promises);
+      const uids = Array.from(selectedEmps);
+      const { error } = await supabase.from('users').delete().in('id', uids);
+      if (error) throw error;
       
       await logAction({
         action: 'Bulk Personnel Deactivation',
         category: 'personnel',
-        details: `Deactivated ${promises.length} employee records in bulk.`,
-        userName: profile?.fullName || user?.displayName,
+        details: `Deactivated ${uids.length} employee records in bulk.`,
+        userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
 
@@ -485,7 +549,8 @@ const EmployeeManagement: React.FC = () => {
       fetchData();
       alert("Employees deactivated successfully.");
     } catch (err) {
-      handleFirestoreError(err, 'delete');
+      console.error(err);
+      alert('Bulk delete failed');
     } finally {
       setProcessing(false);
     }
@@ -496,15 +561,18 @@ const EmployeeManagement: React.FC = () => {
     if (!bulkDept) return;
     setProcessing(true);
     try {
-      const promises = Array.from(selectedEmps).map((uid: string) => updateDoc(doc(db, 'users', uid), { department: bulkDept }));
-      await Promise.all(promises);
+      const uids = Array.from(selectedEmps);
+      const { error } = await supabase.from('users').update({ department: bulkDept }).in('id', uids);
+      if (error) throw error;
+
       setSelectedEmps(new Set());
       setIsBulkDeptOpen(false);
       setBulkDept('');
       fetchData();
-      alert(`Department updated for ${promises.length} employees.`);
+      alert(`Department updated for ${uids.length} employees.`);
     } catch (err) {
-      handleFirestoreError(err, 'update');
+      console.error(err);
+      alert('Bulk update failed');
     } finally {
       setProcessing(false);
     }
@@ -516,11 +584,17 @@ const EmployeeManagement: React.FC = () => {
     setFetchingReviews(true);
     setReviews([]);
     try {
-      const q = query(collection(db, 'users', employee.uid, 'reviews'), orderBy('reviewDate', 'desc'));
-      const snap = await getDocs(q);
-      setReviews(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const { data, error } = await supabase
+        .from('personnel_reviews')
+        .select('*')
+        .eq('user_id', employee.uid)
+        .order('review_date', { ascending: false });
+
+      if (error) throw error;
+      setReviews((data || []).map(r => ({ ...r, reviewDate: r.review_date, overallRating: r.overall_rating })));
     } catch (err) {
-      handleFirestoreError(err, 'list');
+      console.error(err);
+      alert('Failed to fetch reviews');
     } finally {
       setFetchingReviews(false);
     }
@@ -531,23 +605,24 @@ const EmployeeManagement: React.FC = () => {
     if (!selectedUser) return;
     setProcessing(true);
     try {
-      const id = doc(collection(db, 'users', selectedUser.uid, 'reviews')).id;
-      await setDoc(doc(db, 'users', selectedUser.uid, 'reviews', id), {
-        ...reviewForm,
-        id,
-        employeeId: selectedUser.uid,
-        employeeName: selectedUser.fullName,
-        reviewerId: user?.uid,
-        reviewerName: profile?.fullName || user?.email,
-        createdAt: serverTimestamp()
+      const { error } = await supabase.from('personnel_reviews').insert({
+        user_id: selectedUser.uid,
+        reviewer_id: user?.id,
+        review_date: reviewForm.reviewDate,
+        overall_rating: reviewForm.overallRating,
+        feedback: reviewForm.feedback,
+        goals: reviewForm.goals,
+        status: reviewForm.status,
+        created_at: new Date().toISOString()
       });
+
+      if (error) throw error;
       
       await logAction({
         action: 'Performance Review Recording',
         category: 'performance',
         details: `Recorded review for ${selectedUser.fullName} with rating ${reviewForm.overallRating}/5.`,
-        entityId: id,
-        userName: profile?.fullName || user?.displayName,
+        userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
 
@@ -555,7 +630,8 @@ const EmployeeManagement: React.FC = () => {
       fetchReviews(selectedUser);
       alert("Performance review recorded successfully.");
     } catch (err) {
-      handleFirestoreError(err, 'write');
+      console.error(err);
+      alert('Review recording failed');
     } finally {
       setProcessing(false);
     }
@@ -695,7 +771,7 @@ const EmployeeManagement: React.FC = () => {
           <p className="text-sm text-gray-500">Recruit, manage and audit site personnel</p>
         </div>
         <button 
-          onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active' }); setIsModalOpen(true); }}
+          onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!' }); setIsModalOpen(true); }}
           className="btn btn-primary flex items-center gap-2"
         >
           <Plus size={18} /> Recruit Staff
@@ -703,6 +779,19 @@ const EmployeeManagement: React.FC = () => {
       </header>
 
       {/* Modern Metrics Bar */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 p-4 rounded-xl flex items-center gap-3 text-red-600 mb-6">
+          <AlertCircle size={20} />
+          <div className="flex-1">
+            <p className="text-xs font-bold uppercase tracking-tight">Personnel synchronization failure</p>
+            <p className="text-[10px] opacity-80">{error}</p>
+          </div>
+          <button onClick={fetchData} className="p-2 hover:bg-red-100 rounded-lg transition-colors">
+            <RefreshCw size={16} />
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-mine-green transition-all">
           <div className="space-y-1">
@@ -750,12 +839,16 @@ const EmployeeManagement: React.FC = () => {
                 <span className="text-lg font-black text-mine-gold font-monoLeading-none">{employees.length}</span>
               </div>
               <div className="flex justify-between items-end border-b border-white/5 pb-2">
+                <span className="text-[10px] text-gray-400 uppercase font-black">Management</span>
+                <span className="text-sm font-bold text-white font-mono">{employees.filter(e => e.role === 'management').length}</span>
+              </div>
+              <div className="flex justify-between items-end border-b border-white/5 pb-2">
                 <span className="text-[10px] text-gray-400 uppercase font-black">Contractors</span>
                 <span className="text-sm font-bold text-white font-mono">{employees.filter(e => e.role === 'contractor').length}</span>
               </div>
               <div className="flex justify-between items-end">
                 <span className="text-[10px] text-gray-400 uppercase font-black">Site Admins</span>
-                <span className="text-sm font-bold text-white font-mono">{employees.filter(e => e.role === 'admin').length}</span>
+                <span className="text-sm font-bold text-white font-mono">{employees.filter(e => e.role === 'admin' || e.role === 'superadmin').length}</span>
               </div>
             </div>
           </section>
@@ -797,8 +890,10 @@ const EmployeeManagement: React.FC = () => {
               >
                 <option value="">All Roles</option>
                 <option value="employee">Staff (General)</option>
+                <option value="management">Management</option>
                 <option value="contractor">Contractors</option>
                 <option value="admin">Site Admin</option>
+                {isSuperAdmin && <option value="superadmin">Super Admin</option>}
               </select>
             </div>
 
@@ -933,7 +1028,13 @@ const EmployeeManagement: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`badge ${emp.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                      <span className={`badge border ${
+                        emp.role === 'superadmin' ? 'bg-amber-50 text-amber-700 border-amber-100 font-black' :
+                        emp.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-100' : 
+                        emp.role === 'management' ? 'bg-indigo-50 text-indigo-700 border-indigo-100 font-bold font-serif' :
+                        emp.role === 'contractor' ? 'bg-teal-50 text-teal-700 border-teal-100' :
+                        'bg-blue-50 text-blue-700 border-blue-100'
+                      }`}>
                         {emp.role}
                       </span>
                     </td>
@@ -957,7 +1058,24 @@ const EmployeeManagement: React.FC = () => {
                           <Wallet size={16} />
                         </button>
                         <button 
-                          onClick={() => { setEditingEmp(emp); setForm({ fullName: emp.fullName, email: emp.email, role: emp.role, department: emp.department || '', jobTitle: emp.jobTitle || '', branch: emp.branch || '', subsidiaryId: emp.subsidiaryId || '', baseSalary: emp.baseSalary, currency: emp.currency, status: emp.status || 'active' }); setIsModalOpen(true); }}
+                          onClick={() => { 
+                            setEditingEmp(emp); 
+                            setForm({ 
+                              fullName: emp.fullName || '', 
+                              email: emp.email || '', 
+                              role: emp.role || 'employee', 
+                              department: emp.department || '', 
+                              jobTitle: emp.jobTitle || '', 
+                              branch: emp.branch || '', 
+                              subsidiaryId: emp.subsidiaryId || '', 
+                              baseSalary: emp.baseSalary || 1000, 
+                              currency: emp.currency || 'USD', 
+                              status: emp.status || 'active', 
+                              payrollGroup: emp.payrollGroup || 'General',
+                              password: '---' 
+                            }); 
+                            setIsModalOpen(true); 
+                          }}
                           className="p-2 text-gray-400 hover:text-mine-green hover:bg-green-50 rounded-lg transition-all"
                           title="Edit Profile"
                         >
@@ -995,7 +1113,7 @@ const EmployeeManagement: React.FC = () => {
               <div className="p-12 text-center space-y-4">
                 <p className="text-gray-400 italic text-sm">No matching personnel records found.</p>
                 <button 
-                  onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active' }); setIsModalOpen(true); }}
+                  onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!' }); setIsModalOpen(true); }}
                   className="btn btn-primary mx-auto flex items-center gap-2"
                 >
                   <Plus size={18} /> Add New Employee
@@ -1027,9 +1145,27 @@ const EmployeeManagement: React.FC = () => {
                   <input required value={form.fullName} onChange={(e) => setForm({...form, fullName: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
                 </div>
                 {!editingEmp && (
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Email</label>
-                    <input required type="email" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} placeholder="employee@mineazy.com" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Email</label>
+                      <input required type="email" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} placeholder="employee@mineazy.com" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                    </div>
+                    <div className="bg-green-50/50 p-3 rounded-lg border border-green-100/50">
+                      <p className="text-[9px] font-black text-green-700 uppercase tracking-widest flex items-center gap-2 mb-2">
+                        <ShieldCheck size={12} /> Account Provisioning
+                      </p>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-green-600/60 uppercase tracking-widest">Initial Password</label>
+                        <input 
+                          required 
+                          type="text"
+                          value={form.password} 
+                          onChange={(e) => setForm({...form, password: e.target.value})} 
+                          className="w-full bg-white border border-green-200 rounded p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-mine-green" 
+                        />
+                        <p className="text-[8px] text-green-600/40 italic">New personnel will use this to sign in to their node.</p>
+                      </div>
+                    </div>
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-4">
@@ -1077,9 +1213,19 @@ const EmployeeManagement: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Role</label>
-                    <select value={form.role} onChange={(e) => setForm({...form, role: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
+                    <select 
+                      value={form.role} 
+                      onChange={(e) => setForm({...form, role: e.target.value})} 
+                      disabled={!isAdmin}
+                      className={`w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold ${!isAdmin ? 'opacity-50 cursor-not-allowed text-gray-400' : ''}`}
+                    >
                       <option value="employee">Staff (General Access)</option>
+                      <option value="contractor">Contractor (Limited Access)</option>
+                      <option value="management">Management (Special Access)</option>
                       <option value="admin">Site Admin (Privileged Access)</option>
+                      {isSuperAdmin && (
+                        <option value="superadmin">Super Admin (Root Access)</option>
+                      )}
                     </select>
                   </div>
                   <div className="space-y-1">
@@ -1090,6 +1236,13 @@ const EmployeeManagement: React.FC = () => {
                       <option value="terminated">Terminated</option>
                     </select>
                   </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payroll Run Group</label>
+                  <select value={form.payrollGroup} onChange={(e) => setForm({...form, payrollGroup: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
+                    <option value="General">General Staff Payroll</option>
+                    <option value="Management">Management Payroll</option>
+                  </select>
                 </div>
                 <button type="submit" disabled={processing} className="btn btn-primary w-full py-4 flex items-center justify-center gap-2 mt-2">
                   {processing ? <RefreshCw className="animate-spin text-white" size={18} /> : <ShieldCheck size={18} />}
@@ -1277,7 +1430,7 @@ const EmployeeManagement: React.FC = () => {
                             <div className="space-y-1">
                               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><RefreshCw size={12} className="text-mine-green" /> Registration Timestamp</p>
                               <p className="text-sm font-semibold text-gray-900 border-l-2 border-mine-green pl-3 py-1 bg-gray-50/50 font-mono uppercase">
-                                {selectedUser.createdAt?.toDate()?.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) || 'Historical Record'}
+                                {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : 'Historical Record'}
                               </p>
                             </div>
                           </div>

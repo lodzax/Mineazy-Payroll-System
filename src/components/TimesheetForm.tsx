@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, query, where, getDocs, orderBy, serverTimestamp, updateDoc, doc, deleteDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
 import { Clock, CheckCircle, Send, AlertCircle, ChevronLeft, ChevronRight, RefreshCw, FileUp, Download, Pencil, X, Trash2, Eye } from 'lucide-react';
@@ -66,13 +65,30 @@ const TimesheetForm: React.FC = () => {
 
   const fetchHistory = async () => {
     if (!user) return;
-    const q = query(
-      collection(db, 'timesheets'),
-      where('employeeId', '==', user.uid),
-      orderBy('submittedAt', 'desc')
-    );
-    const snap = await getDocs(q);
-    setHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const { data, error } = await supabase
+      .from('timesheets')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('submitted_at', { ascending: false });
+
+    if (error) {
+      console.error(error);
+      if (error.code === 'PGRST204') {
+        setMessage({ 
+          type: 'error', 
+          text: 'Database schema mismatch. Please run the SQL in supabase_schema.sql to add missing columns (submission_mode, subsidiary_id).' 
+        });
+      }
+    } else {
+      setHistory((data || []).map(t => ({
+        ...t,
+        employeeId: t.user_id,
+        hoursWorked: t.hours_worked,
+        overtimeHours: t.overtime_hours,
+        submissionMode: t.submission_mode,
+        submittedAt: t.submitted_at
+      })));
+    }
   };
 
   useEffect(() => {
@@ -87,18 +103,20 @@ const TimesheetForm: React.FC = () => {
 
     try {
       const month = date.slice(0, 7); // YYYY-MM
-      await addDoc(collection(db, 'timesheets'), {
-        employeeId: user.uid,
-        subsidiaryId: profile?.subsidiaryId || '',
-        submissionMode,
-        date, // Reference date (Daily: Actual, Weekly: Mon, Monthly: 1st)
-        month,
+      const { error } = await supabase.from('timesheets').insert({
+        user_id: user.id,
+        subsidiary_id: profile?.subsidiaryId || null,
+        submission_mode: submissionMode,
+        date,
+        month_year: month,
         description,
-        hoursWorked: Number(hours),
-        overtimeHours: Number(overtime) || 0,
+        hours_worked: Number(hours),
+        overtime_hours: Number(overtime) || 0,
         status: 'pending',
-        submittedAt: serverTimestamp()
+        submitted_at: new Date().toISOString()
       });
+
+      if (error) throw error;
       setMessage({ type: 'success', text: `${submissionMode.charAt(0).toUpperCase() + submissionMode.slice(1)} timesheet submitted successfully` });
       
       await logAction({
@@ -117,9 +135,12 @@ const TimesheetForm: React.FC = () => {
       setOvertime('0');
       setDescription('');
       fetchHistory();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setMessage({ type: 'error', text: 'Failed to submit timesheet' });
+      const text = err.code === 'PGRST204' 
+        ? 'Database schema mismatch (submission_mode column missing). Please update schema.' 
+        : 'Failed to submit timesheet';
+      setMessage({ type: 'error', text });
     } finally {
       setLoading(false);
     }
@@ -168,19 +189,19 @@ const TimesheetForm: React.FC = () => {
                          ? row.submissionMode.toLowerCase() 
                          : 'daily';
             
-            await addDoc(collection(db, 'timesheets'), {
-              employeeId: user.uid,
-              subsidiaryId: profile?.subsidiaryId || '',
-              submissionMode: mode,
+            const { error } = await supabase.from('timesheets').insert({
+              user_id: user.id,
+              subsidiary_id: profile?.subsidiaryId || null,
+              submission_mode: mode,
               date: dateStr,
-              month,
+              month_year: month,
               description: row.description || 'Bulk Import',
-              hoursWorked: Number(row.hoursWorked) || 0,
-              overtimeHours: Number(row.overtimeHours) || 0,
+              hours_worked: Number(row.hoursWorked) || 0,
+              overtime_hours: Number(row.overtimeHours) || 0,
               status: 'pending',
-              submittedAt: serverTimestamp()
+              submitted_at: new Date().toISOString()
             });
-            successCount++;
+            if (!error) successCount++;
           }
 
           if (successCount > 0) {
@@ -197,9 +218,12 @@ const TimesheetForm: React.FC = () => {
             ? `Successfully imported ${successCount} entries` 
             : 'No valid entries found in CSV' });
           fetchHistory();
-        } catch (err) {
+        } catch (err: any) {
           console.error(err);
-          setMessage({ type: 'error', text: 'Failed to process bulk import. Check file format.' });
+          const text = err.code === 'PGRST204' 
+            ? 'Database schema mismatch (submission_mode missing). Please update schema.' 
+            : 'Failed to process bulk import. Check file format.';
+          setMessage({ type: 'error', text });
         } finally {
           setLoading(false);
           e.target.value = '';
@@ -218,12 +242,16 @@ const TimesheetForm: React.FC = () => {
     if (!editingEntry) return;
     setLoading(true);
     try {
-      await updateDoc(doc(db, 'timesheets', editingEntry.id), {
-        hoursWorked: Number(editHours),
-        overtimeHours: Number(editOvertime) || 0,
-        description: editDescription,
-        updatedAt: serverTimestamp()
-      });
+      const { error } = await supabase
+        .from('timesheets')
+        .update({
+          hours_worked: Number(editHours),
+          overtime_hours: Number(editOvertime) || 0,
+          description: editDescription,
+        })
+        .eq('id', editingEntry.id);
+
+      if (error) throw error;
 
       await logAction({
         action: 'Timesheet Update',
@@ -249,7 +277,12 @@ const TimesheetForm: React.FC = () => {
     if (!window.confirm('Are you sure you want to delete this specific timesheet entry? This action is irreversible.')) return;
     setLoading(true);
     try {
-      await deleteDoc(doc(db, 'timesheets', id));
+      const { error } = await supabase
+        .from('timesheets')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
       setMessage({ type: 'success', text: 'Timesheet entry purged from nodes' });
       fetchHistory();
     } catch (err) {
@@ -272,20 +305,27 @@ const TimesheetForm: React.FC = () => {
     if (selectedEntries.size === 0) return;
     setLoading(true);
     try {
-      const updates = Array.from(selectedEntries).map((id: string) => {
+      const updates = Array.from(selectedEntries).map(async (id: string) => {
         const entry = history.find(h => h.id === id);
         if (entry?.status !== 'pending') return null;
         
-        const updateData: any = { updatedAt: serverTimestamp() };
-        if (bulkHours !== '') updateData.hoursWorked = Number(bulkHours);
-        if (bulkOvertime !== '') updateData.overtimeHours = Number(bulkOvertime);
+        const updateData: any = {};
+        if (bulkHours !== '') updateData.hours_worked = Number(bulkHours);
+        if (bulkOvertime !== '') updateData.overtime_hours = Number(bulkOvertime);
         if (bulkDescription !== '') updateData.description = bulkDescription;
         
-        return updateDoc(doc(db, 'timesheets', id), updateData);
-      }).filter((update): update is Promise<void> => update !== null);
+        const { error } = await supabase
+          .from('timesheets')
+          .update(updateData)
+          .eq('id', id);
+        
+        return error ? null : id;
+      });
 
-      await Promise.all(updates);
-      setMessage({ type: 'success', text: `Successfully updated ${updates.length} entries` });
+      const results = await Promise.all(updates);
+      const successfulUpdates = results.filter(r => r !== null);
+      
+      setMessage({ type: 'success', text: `Successfully updated ${successfulUpdates.length} entries` });
       setIsBulkEditing(false);
       setSelectedEntries(new Set());
       setBulkHours('');

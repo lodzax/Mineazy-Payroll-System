@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, query, where, getDocs, orderBy, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
 import { BadgeDollarSign, CheckCircle, Send, AlertCircle, Info, ChevronLeft, ChevronRight, X, ExternalLink } from 'lucide-react';
@@ -62,13 +61,22 @@ const LoanForm: React.FC = () => {
 
   const fetchHistory = async () => {
     if (!user) return;
-    const q = query(
-      collection(db, 'loan_applications'),
-      where('employeeId', '==', user.uid),
-      orderBy('createdAt', 'desc')
-    );
-    const snap = await getDocs(q);
-    setHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const { data, error } = await supabase
+      .from('loan_requests')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error(error);
+    } else {
+      setHistory((data || []).map(l => ({
+        ...l,
+        employeeId: l.user_id,
+        installmentCount: l.installment_count,
+        interestRate: l.interest_rate
+      })));
+    }
   };
 
   useEffect(() => {
@@ -82,17 +90,19 @@ const LoanForm: React.FC = () => {
     setMessage(null);
 
     try {
-      await addDoc(collection(db, 'loan_applications'), {
-        employeeId: user.uid,
-        subsidiaryId: profile?.subsidiaryId || '',
+      const { error } = await supabase.from('loan_requests').insert({
+        user_id: user.id,
+        subsidiary_id: profile?.subsidiaryId || null,
         amount: Number(amount),
         currency: profile?.currency || 'USD',
-        installmentCount: Number(installments),
-        interestRate: Number(interestRate),
+        installment_count: Number(installments),
+        interest_rate: Number(interestRate),
         reason,
         status: 'pending',
-        createdAt: serverTimestamp()
+        created_at: new Date().toISOString()
       });
+
+      if (error) throw error;
 
       await logAction({
         action: 'Loan Application Submitted',

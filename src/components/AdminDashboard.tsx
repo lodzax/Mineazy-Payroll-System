@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, updateDoc, doc, addDoc, serverTimestamp, where, getDoc, query, writeBatch, runTransaction } from 'firebase/firestore';
-import { db, handleFirestoreError } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import { 
   ShieldCheck, 
@@ -21,6 +20,7 @@ import {
 import { calculatePaye, calculateNssa, USD_TAX_BANDS, ZWG_TAX_BANDS } from '../lib/payrollUtils';
 import TaxCalculator from './TaxCalculator';
 import PayrollReports from './PayrollReports';
+import PayrollBatchManagement from './PayrollBatchManagement';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -72,10 +72,13 @@ const AdminDashboard: React.FC = () => {
   const [processing, setProcessing] = useState(false);
   const [subFilter, setSubFilter] = useState('');
   const [payrollStatus, setPayrollStatus] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
+  const [payrollGroupFilter, setPayrollGroupFilter] = useState('General');
   const [isBatchFinalized, setIsBatchFinalized] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<{ type: 'draft' | 'final', monthDisplay: string } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ type: 'draft' | 'final', monthDisplay: string, group?: string } | null>(null);
   const [selectedTimesheets, setSelectedTimesheets] = useState<Set<string>>(new Set());
   const [selectedLeaveRequests, setSelectedLeaveRequests] = useState<Set<string>>(new Set());
+  
+  const [activeTab, setActiveTab] = useState<'run' | 'batches' | 'reports'>('run');
   
   // Pagination states
   const [timesheetPage, setTimesheetPage] = useState(1);
@@ -88,32 +91,40 @@ const AdminDashboard: React.FC = () => {
     try {
       const month = new Date().toISOString().slice(0, 7);
       const specificSubId = subFilter || profile?.subsidiaryId;
-      const batchIds = ['all-month', `${specificSubId}-${month}`];
       
-      const batchDocs = await Promise.all([
-        getDoc(doc(db, 'payroll_batches', `all-${month}`)),
-        specificSubId ? getDoc(doc(db, 'payroll_batches', `${specificSubId}-${month}`)) : Promise.resolve(null)
-      ]);
+      const { data: batchData } = await supabase
+        .from('payroll_batches')
+        .select('*')
+        .eq('month_year', month);
 
-      const finalized = batchDocs.some(d => d && d.exists() && d.data()?.status === 'finalized');
+      const finalized = (batchData || []).some(b => b.status === 'finalized' && (!specificSubId || b.subsidiary_id === specificSubId || b.subsidiary_id === 'all'));
       setIsBatchFinalized(finalized);
 
-      const usersQuery = isSuperAdmin 
-        ? collection(db, 'users') 
-        : query(collection(db, 'users'), where('subsidiaryId', '==', profile?.subsidiaryId || 'none'));
+      let usersQuery = supabase.from('users').select('*').order('created_at', { ascending: false });
+      if (!isSuperAdmin && profile?.subsidiaryId) {
+        usersQuery = usersQuery.eq('subsidiary_id', profile.subsidiaryId);
+      } else if (!isSuperAdmin) {
+        // If not superadmin and no subsidiary, show no users to be safe
+        usersQuery = usersQuery.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
+      }
       
-      const [empSnap, subSnap] = await Promise.all([
-        getDocs(usersQuery),
-        isSuperAdmin ? getDocs(collection(db, 'subsidiaries')) : Promise.resolve({ docs: [] } as any)
+      const [empRes, subRes] = await Promise.all([
+        usersQuery,
+        isSuperAdmin ? supabase.from('subsidiaries').select('*') : Promise.resolve({ data: [] } as any)
       ]);
 
-      let allEmps: any[] = empSnap.docs.map(d => ({ ...d.data() as any, uid: d.id }));
-      const allSubs: any[] = subSnap.docs.map(d => ({ id: d.id, ...d.data() as any }));
+      let allEmps: any[] = (empRes.data || []).map(u => ({ 
+        ...u, 
+        uid: u.id, 
+        subsidiaryId: u.subsidiary_id, 
+        fullName: u.full_name, 
+        baseSalary: u.base_salary, 
+        annualLeaveBalance: u.annual_leave_balance,
+        payrollGroup: u.payroll_group || 'General'
+      }));
+      const allSubs: any[] = (subRes.data || []);
       
-      // Filter employees by subsidiary
-      if (!isSuperAdmin && profile?.subsidiaryId) {
-        allEmps = allEmps.filter((e: any) => e.subsidiaryId === profile.subsidiaryId);
-      } else if (isSuperAdmin && subFilter) {
+      if (isSuperAdmin && subFilter) {
         allEmps = allEmps.filter((e: any) => e.subsidiaryId === subFilter);
       }
 
@@ -121,38 +132,39 @@ const AdminDashboard: React.FC = () => {
       setSubsidiaries(allSubs);
 
       // Fetch pending requests
-      const getContextQuery = (coll: string) => {
-        let base = query(collection(db, coll), where('status', 'in', ['pending', 'submitted']));
+      const fetchCollection = async (table: string) => {
+        let q = supabase.from(table).select('*').in('status', ['pending', 'submitted']);
         if (!isSuperAdmin && profile?.subsidiaryId) {
-          base = query(base, where('subsidiaryId', '==', profile.subsidiaryId));
+          q = q.eq('subsidiary_id', profile.subsidiaryId);
+        } else if (!isSuperAdmin) {
+          // Safeguard
+          q = q.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
         }
-        return base;
+        return q;
       };
 
-      const [timeSnap, loanSnap, leaveSnap] = await Promise.all([
-        getDocs(getContextQuery('timesheets')),
-        getDocs(getContextQuery('loan_applications')),
-        getDocs(getContextQuery('leave_applications'))
+      const [timeRes, loanRes, leaveRes] = await Promise.all([
+        fetchCollection('timesheets').catch(() => ({ data: [] })),
+        fetchCollection('loan_requests').catch(() => ({ data: [] })),
+        fetchCollection('leave_requests').catch(() => ({ data: [] }))
       ]);
 
-      // Map requests and cross-reference with filtered employees
-      const filteredEmpIds = new Set(allEmps.map(e => e.uid));
+      const filteredEmpIds = new Set(allEmps.map(e => e.id));
       
-      setTimesheets(timeSnap.docs
-        .map(d => ({ ...d.data(), id: d.id }))
+      setTimesheets((timeRes.data || [])
+        .map(t => ({ ...t, employeeId: t.user_id, subsidiaryId: t.subsidiary_id, hoursWorked: t.hours_worked, overtimeHours: t.overtime_hours }))
         .filter((t: any) => filteredEmpIds.has(t.employeeId))
       );
-      setLoanRequests(loanSnap.docs
-        .map(d => ({ ...d.data(), id: d.id }))
+      setLoanRequests((loanRes.data || [])
+        .map(l => ({ ...l, employeeId: l.user_id, subsidiaryId: l.subsidiary_id, installmentCount: l.installment_count }))
         .filter((l: any) => filteredEmpIds.has(l.employeeId))
       );
-      setLeaveRequests(leaveSnap.docs
-        .map(d => ({ ...d.data(), id: d.id }))
+      setLeaveRequests((leaveRes.data || [])
+        .map(lv => ({ ...lv, employeeId: lv.user_id, subsidiaryId: lv.subsidiary_id, startDate: lv.start_date, endDate: lv.end_date }))
         .filter((lv: any) => filteredEmpIds.has(lv.employeeId))
       );
     } catch (err) {
       console.error("Fetch failed:", err);
-      handleFirestoreError(err, 'list');
     } finally {
       setLoading(false);
     }
@@ -172,40 +184,44 @@ const AdminDashboard: React.FC = () => {
   const handleStatusUpdate = async (collectionName: string, id: string, status: string) => {
     setProcessing(true);
     try {
-      const docRef = doc(db, collectionName, id);
+      const { data: record, error: fetchErr } = await supabase
+        .from(collectionName)
+        .select('*')
+        .eq('id', id)
+        .single();
       
-      await runTransaction(db, async (transaction) => {
-        const snapshot = await transaction.get(docRef);
-        if (!snapshot.exists()) {
-          throw new Error("Target record not found in node.");
-        }
-        const data = snapshot.data();
+      if (fetchErr || !record) throw new Error("Target record not found in node.");
 
-        // Atomic Deduction: If approving annual leave which wasn't already approved
-        if (collectionName === 'leave_applications' && status === 'approved' && data?.status !== 'approved' && data?.type === 'annual') {
-          const empRef = doc(db, 'users', data.employeeId);
-          const empSnap = await transaction.get(empRef);
+      // Handle leave deduction
+      if (collectionName === 'leave_requests' && status === 'approved' && record.status !== 'approved' && record.type === 'annual') {
+        const { data: emp, error: empErr } = await supabase
+          .from('users')
+          .select('annual_leave_balance')
+          .eq('id', record.user_id)
+          .single();
           
-          if (!empSnap.exists()) {
-            throw new Error("Personnel profile missing from ledger.");
-          }
-          
-          const empData = empSnap.data();
-          const currentBalance = empData?.annualLeaveBalance || 0;
-          const leaveDays = calculateLeaveDays(data.startDate, data.endDate);
-          
-          transaction.update(empRef, {
-            annualLeaveBalance: currentBalance - leaveDays,
-            lastActivity: serverTimestamp()
-          });
-        }
+        if (empErr || !emp) throw new Error("Personnel profile missing from ledger.");
+        
+        const leaveDays = calculateLeaveDays(record.start_date, record.end_date);
+        
+        await supabase
+          .from('users')
+          .update({
+            annual_leave_balance: (emp.annual_leave_balance || 0) - leaveDays
+          })
+          .eq('id', record.user_id);
+      }
 
-        transaction.update(docRef, { 
+      const { error: updateErr } = await supabase
+        .from(collectionName)
+        .update({ 
           status,
-          reviewedAt: serverTimestamp(),
-          reviewedBy: user?.email
-        });
-      });
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: user?.email
+        })
+        .eq('id', id);
+
+      if (updateErr) throw updateErr;
 
       await logAction({
         action: 'Status Update',
@@ -219,7 +235,6 @@ const AdminDashboard: React.FC = () => {
       fetchData();
     } catch (err) {
       console.error("Transactional clear failed:", err);
-      handleFirestoreError(err, 'update');
     } finally {
       setProcessing(false);
     }
@@ -251,7 +266,7 @@ const AdminDashboard: React.FC = () => {
       selectionSetter(new Set());
       fetchData();
     } catch (err) {
-      handleFirestoreError(err, 'update');
+      console.error(err);
     } finally {
       setProcessing(false);
     }
@@ -259,7 +274,7 @@ const AdminDashboard: React.FC = () => {
 
   const initiateGeneratePayroll = () => {
     const displayMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
-    setConfirmAction({ type: 'draft', monthDisplay: displayMonth });
+    setConfirmAction({ type: 'draft', monthDisplay: displayMonth, group: payrollGroupFilter });
   };
 
   const initiateFinalizePayroll = () => {
@@ -277,33 +292,39 @@ const AdminDashboard: React.FC = () => {
     setPayrollStatus({ type: 'info', message: `Initializing batch payroll for ${displayMonth}...` });
     
     try {
-      // 1. Check for existing payslips to avoid duplicates
-      const existingSnap = await getDocs(query(collection(db, 'payslips'), where('month', '==', month)));
-      const existingUserIds = new Set(existingSnap.docs.map(d => d.data().employeeId));
+      // 1. Check for existing payslips
+      const { data: existingPayslips } = await supabase
+        .from('payslips')
+        .select('user_id')
+        .eq('month_year', month);
 
-      const eligibleEmployees = employees.filter(emp => !existingUserIds.has(emp.uid));
+      const existingUserIds = new Set((existingPayslips || []).map(d => d.user_id));
+      const eligibleEmployees = employees.filter(emp => 
+        !existingUserIds.has(emp.id) && emp.payrollGroup === confirmAction?.group
+      );
       
       if (eligibleEmployees.length === 0) {
-        setPayrollStatus({ type: 'info', message: 'All active personnel nodes have existing payslips for this period.' });
+        setPayrollStatus({ type: 'info', message: `All active personnel in the ${confirmAction?.group} group have existing payslips for this period.` });
         setProcessing(false);
         return;
       }
 
-      // 2. Fetch all required data for eligible employees
-      const [approvedTimesheets, approvedLoans] = await Promise.all([
-        getDocs(query(collection(db, 'timesheets'), where('month', '==', month), where('status', '==', 'approved'))),
-        getDocs(query(collection(db, 'loan_applications'), where('status', '==', 'approved')))
+      // 2. Fetch approved timesheets and loans
+      const [timesheetsRes, loansRes] = await Promise.all([
+        supabase.from('timesheets').select('*').eq('month_year', month).eq('status', 'approved'),
+        supabase.from('loan_requests').select('*').eq('status', 'approved')
       ]);
+
+      const approvedTimesheets = timesheetsRes.data || [];
+      const approvedLoans = loansRes.data || [];
 
       let count = 0;
       for (const emp of eligibleEmployees) {
-        const empTimesheets = approvedTimesheets.docs.filter(d => d.data().employeeId === emp.uid);
+        const empTimesheets = approvedTimesheets.filter(d => d.user_id === emp.id);
         
-        // Sum hours from all approved timesheets for this month
-        const standardHours = empTimesheets.reduce((acc, curr: any) => acc + (curr.data().hoursWorked || 0), 0);
-        const overtimeHours = empTimesheets.reduce((acc, curr: any) => acc + (curr.data().overtimeHours || 0), 0);
+        const standardHours = empTimesheets.reduce((acc, curr) => acc + (curr.hours_worked || 0), 0);
+        const overtimeHours = empTimesheets.reduce((acc, curr) => acc + (curr.overtime_hours || 0), 0);
         
-        // Basic calculations
         const hourlyRate = (emp.baseSalary || 0) / 160;
         const overtimePay = overtimeHours * (hourlyRate * 1.5);
         const basePay = emp.baseSalary || 0;
@@ -311,66 +332,55 @@ const AdminDashboard: React.FC = () => {
 
         if (totalGross === 0 && empTimesheets.length === 0) continue;
 
-        // Taxes & Statutory deductions
         const bands = emp.currency === 'ZWG' ? ZWG_TAX_BANDS : USD_TAX_BANDS;
         const { tax, aidsLevy } = calculatePaye(totalGross, bands);
         const nssa = calculateNssa(totalGross, emp.currency as 'USD' | 'ZWG');
         
-        // Loan deductions: Calculate with interest awareness
-        const empLoans = approvedLoans.docs.filter(d => d.data().employeeId === emp.uid);
-        const loanDeduction = empLoans.reduce((acc, curr: any) => {
-          const lData = curr.data();
-          const principal = lData.amount;
-          const rate = (lData.interestRate || 0) / 100;
-          const term = lData.installmentCount || 1;
+        const empLoans = approvedLoans.filter(d => d.user_id === emp.id);
+        const loanDeduction = empLoans.reduce((acc, curr) => {
+          const principal = curr.amount;
+          const rate = (curr.interest_rate || 0) / 100;
+          const term = curr.installment_count || 1;
           const totalRepayable = principal + (principal * rate * term);
           return acc + (totalRepayable / term);
         }, 0);
 
         const totalDeductions = tax + aidsLevy + nssa + loanDeduction;
         const netPay = totalGross - totalDeductions;
-
-        // Leave Accrual: Earn 2.5 days per month
         const newBalance = (emp.annualLeaveBalance || 0) + 2.5;
 
-        await Promise.all([
-          addDoc(collection(db, 'payslips'), {
-            employeeId: emp.uid,
-            subsidiaryId: emp.subsidiaryId || '',
-            month,
-            monthDisplay: displayMonth,
-            baseSalary: basePay,
-            overtimePay,
-            standardHours,
-            overtimeHours,
-            grossPay: totalGross,
-            taxAmount: tax,
-            aidsLevy,
-            nssaDeduction: nssa,
-            loanDeductions: loanDeduction,
-            totalDeductions,
-            netPay,
-            currency: emp.currency || 'USD',
-            leaveBalance: newBalance,
-            isPublished: false,
-            generatedAt: serverTimestamp(),
-            breakdown: {
-              hourlyRate: hourlyRate.toFixed(2),
-              overtimeRate: (hourlyRate * 1.5).toFixed(2),
-              nssaRate: emp.currency === 'ZWG' ? '4.5%' : '4.5% (ZWG Base)',
-              loanCount: empLoans.length
-            },
-            metadata: {
-              processId: `batch-${Date.now()}`,
-              v: '2.1'
-            }
-          }),
-          // Update user's cumulative balance
-          updateDoc(doc(db, 'users', emp.uid), {
-            annualLeaveBalance: newBalance
-          })
-        ]);
-        count++;
+        const { error: payslipErr } = await supabase.from('payslips').insert({
+          user_id: emp.id,
+          subsidiary_id: emp.subsidiaryId || null,
+          month_year: month,
+          month_display: displayMonth,
+          base_salary: basePay,
+          overtime_pay: overtimePay,
+          standard_hours: standardHours,
+          overtime_hours: overtimeHours,
+          gross_pay: totalGross,
+          tax_amount: tax,
+          aids_levy: aidsLevy,
+          nssa_deduction: nssa,
+          loan_deductions: loanDeduction,
+          total_deductions: totalDeductions,
+          net_pay: netPay,
+          currency: emp.currency || 'USD',
+          leave_balance: newBalance,
+          is_published: false,
+          generated_at: new Date().toISOString(),
+          breakdown: {
+            hourlyRate: hourlyRate.toFixed(2),
+            overtimeRate: (hourlyRate * 1.5).toFixed(2),
+            nssaRate: emp.currency === 'ZWG' ? '4.5%' : '4.5% (ZWG Base)',
+            loanCount: empLoans.length
+          }
+        });
+
+        if (!payslipErr) {
+          await supabase.from('users').update({ annual_leave_balance: newBalance }).eq('id', emp.id);
+          count++;
+        }
       }
       
       if (count > 0) {
@@ -388,7 +398,7 @@ const AdminDashboard: React.FC = () => {
       fetchData();
     } catch (err) {
       setPayrollStatus({ type: 'error', message: 'Payroll generation failed. Check node logs.' });
-      handleFirestoreError(err, 'write');
+      console.error(err);
     } finally {
       setProcessing(false);
       // Clear status after 10 seconds
@@ -401,57 +411,40 @@ const AdminDashboard: React.FC = () => {
     setProcessing(true);
     try {
       const month = new Date().toISOString().slice(0, 7);
-      const subId = subFilter || profile?.subsidiaryId || 'all';
-      const batchId = `${subId}-${month}`;
-
-      const batch = writeBatch(db);
+      const subIdRaw = subFilter || profile?.subsidiaryId || 'all';
+      const subId = subIdRaw === 'all' ? null : subIdRaw;
 
       // 1. Create/Update Batch Status
-      batch.set(doc(db, 'payroll_batches', batchId), {
-        subsidiaryId: subId,
-        month,
+      await supabase.from('payroll_batches').upsert({
+        subsidiary_id: subId,
+        month_year: month,
         status: 'finalized',
-        finalizedAt: serverTimestamp(),
-        finalizedBy: user?.email
-      });
+        finalized_at: new Date().toISOString(),
+        finalized_by: user?.email
+      }, { onConflict: 'subsidiary_id,month_year' });
 
-      // 2. Publish all draft payslips for this period/subsidiary
-      let payslipQuery;
-      if (subId === 'all' && isSuperAdmin) {
-        payslipQuery = query(
-          collection(db, 'payslips'),
-          where('month', '==', month),
-          where('isPublished', '==', false)
-        );
-      } else {
-        payslipQuery = query(
-          collection(db, 'payslips'),
-          where('month', '==', month),
-          where('subsidiaryId', '==', subId),
-          where('isPublished', '==', false)
-        );
+      // 2. Publish all draft payslips
+      let q = supabase.from('payslips').update({ is_published: true }).eq('month_year', month).eq('is_published', false);
+      if (subId !== 'all') {
+        q = q.eq('subsidiary_id', subId);
       }
-      
-      const snap = await getDocs(payslipQuery);
-      
-      snap.docs.forEach(d => {
-        batch.update(d.ref, { isPublished: true });
-      });
+      const { data, error } = await q.select('*');
 
-      await batch.commit();
+      if (error) throw error;
+      const publishedCount = data?.length || 0;
 
       await logAction({
         action: 'Payroll Finalization',
         category: 'payroll',
-        details: `Finalized and published ${snap.size} payslips for period ${month}. Subsidiary: ${subId}.`,
-        userName: profile?.fullName || user?.displayName,
+        details: `Finalized and published ${publishedCount} payslips for period ${month}. Subsidiary: ${subId}.`,
+        userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
 
-      setPayrollStatus({ type: 'success', message: `Payroll successfully Finalized & Published (${snap.size} records updated).` });
+      setPayrollStatus({ type: 'success', message: `Payroll successfully Finalized & Published (${publishedCount} records updated).` });
       fetchData();
     } catch (err) {
-      handleFirestoreError(err, 'write');
+      console.error(err);
       setPayrollStatus({ type: 'error', message: 'Finalization failed. Internal sync error.' });
     } finally {
       setProcessing(false);
@@ -462,51 +455,52 @@ const AdminDashboard: React.FC = () => {
     setProcessing(true);
     try {
       const month = new Date().toISOString().slice(0, 7);
-      const subId = subFilter || profile?.subsidiaryId || 'all';
+      const subIdRaw = subFilter || profile?.subsidiaryId || 'all';
+      const subId = subIdRaw === 'all' ? null : subIdRaw;
       
-      let q;
-      if (subId === 'all' && isSuperAdmin) {
-        q = query(
-          collection(db, 'payslips'),
-          where('month', '==', month),
-          where('isPublished', '==', false)
-        );
-      } else {
-        q = query(
-          collection(db, 'payslips'),
-          where('month', '==', month),
-          where('subsidiaryId', '==', subId),
-          where('isPublished', '==', false)
-        );
+      let query = supabase
+        .from('payslips')
+        .select(`
+          *,
+          users (
+            full_name
+          )
+        `)
+        .eq('month_year', month)
+        .eq('is_published', false);
+
+      if (subId) {
+        query = query.eq('subsidiary_id', subId);
       }
       
-      const snap = await getDocs(q);
-      const data = snap.docs.map(doc => {
-        const d = doc.data() as any;
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const exportRows = (data || []).map(d => {
         return {
-          ID: doc.id,
-          Employee: d.fullName,
-          Month: d.month,
-          'Base Salary': d.baseSalary,
-          'Hours Worked': d.standardHours,
-          'Overtime Hours': d.overtimeHours,
-          'Overtime Pay': d.overtimePay,
-          'Gross Pay': d.grossPay,
-          'Tax Amount': d.taxAmount,
-          'AIDS Levy': d.aidsLevy,
-          'NSSA Deduction': d.nssaDeduction,
-          'Loan Deductions': d.loanDeductions,
-          'Net Pay': d.netPay,
+          ID: d.id,
+          Employee: d.users?.full_name || 'N/A',
+          Month: d.month_year,
+          'Base Salary': d.basic_salary,
+          'Hours Worked': d.standard_hours,
+          'Overtime Hours': d.overtime_hours,
+          'Overtime Pay': d.overtime_pay,
+          'Gross Pay': d.gross_pay,
+          'Tax Amount': d.tax_amount,
+          'AIDS Levy': d.aids_levy,
+          'NSSA Deduction': d.nssa_deduction,
+          'Loan Deductions': d.loan_deductions,
+          'Net Pay': d.net_pay,
           Currency: d.currency
         };
       });
 
-      if (data.length === 0) {
+      if (exportRows.length === 0) {
         setPayrollStatus({ type: 'info', message: 'No draft payslips found for export.' });
         return;
       }
 
-      const worksheet = XLSX.utils.json_to_sheet(data);
+      const worksheet = XLSX.utils.json_to_sheet(exportRows);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Draft Payroll");
       XLSX.writeFile(workbook, `Draft_Payroll_${subId}_${month}.xlsx`);
@@ -535,34 +529,35 @@ const AdminDashboard: React.FC = () => {
         action: 'Batch Import Initiation',
         category: 'financial',
         details: `Importing payroll updates from Excel (${file.name}). Pending updates: ${jsonData.length}.`,
-        userName: profile?.fullName || user?.displayName,
+        userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
 
-      const batch = writeBatch(db);
       let updateCount = 0;
 
       for (const row of jsonData) {
         if (row.ID) {
-          const payslipRef = doc(db, 'payslips', row.ID);
-          batch.update(payslipRef, {
-            baseSalary: Number(row['Base Salary']),
-            standardHours: Number(row['Hours Worked']),
-            overtimeHours: Number(row['Overtime Hours']),
-            overtimePay: Number(row['Overtime Pay']),
-            grossPay: Number(row['Gross Pay']),
-            taxAmount: Number(row['Tax Amount']),
-            aidsLevy: Number(row['AIDS Levy']),
-            nssaDeduction: Number(row['NSSA Deduction']),
-            loanDeductions: Number(row['Loan Deductions']),
-            netPay: Number(row['Net Pay']),
-            updatedAt: serverTimestamp()
-          });
-          updateCount++;
+          const { error } = await supabase
+            .from('payslips')
+            .update({
+              basic_salary: Number(row['Base Salary']),
+              standard_hours: Number(row['Hours Worked']),
+              overtime_hours: Number(row['Overtime Hours']),
+              overtime_pay: Number(row['Overtime Pay']),
+              gross_pay: Number(row['Gross Pay']),
+              tax_amount: Number(row['Tax Amount']),
+              aids_levy: Number(row['AIDS Levy']),
+              nssa_deduction: Number(row['NSSA Deduction']),
+              loan_deductions: Number(row['Loan Deductions']),
+              net_pay: Number(row['Net Pay']),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', row.ID);
+          
+          if (!error) updateCount++;
         }
       }
 
-      await batch.commit();
       setPayrollStatus({ type: 'success', message: `Successfully updated ${updateCount} payslips from Excel.` });
       fetchData();
     } catch (err) {
@@ -624,7 +619,61 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+        <button 
+          onClick={() => setActiveTab('run')}
+          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'run' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Payroll Run
+        </button>
+        <button 
+          onClick={() => setActiveTab('batches')}
+          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'batches' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Batch Management
+        </button>
+        <button 
+          onClick={() => setActiveTab('reports')}
+          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'reports' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Insights & Reports
+        </button>
+      </div>
+
+      <AnimatePresence mode="wait">
+        {activeTab === 'batches' && (
+          <motion.div
+            key="batches"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <PayrollBatchManagement />
+          </motion.div>
+        )}
+
+        {activeTab === 'reports' && (
+          <motion.div
+            key="reports"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <PayrollReports />
+          </motion.div>
+        )}
+
+        {activeTab === 'run' && (
+          <motion.div
+            key="run"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-8"
+          >
+            {/* Stats and Queues nested here */}
+            <div className="space-y-8">
+              <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-extrabold text-mine-green flex items-center gap-2 uppercase tracking-tight">
             <ShieldCheck size={20} /> Payroll Control Center
@@ -632,6 +681,17 @@ const AdminDashboard: React.FC = () => {
           <p className="text-xs text-gray-500 font-medium">Monitoring and processing Mineazy solution operations</p>
         </div>
         <div className="flex flex-col md:flex-row items-end gap-3">
+          <div className="flex flex-col items-end">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Payroll Group</label>
+            <select 
+              value={payrollGroupFilter}
+              onChange={(e) => setPayrollGroupFilter(e.target.value)}
+              className="bg-white border border-gray-200 rounded px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-green min-w-[150px]"
+            >
+              <option value="General">General Staff</option>
+              <option value="Management">Management</option>
+            </select>
+          </div>
           {isSuperAdmin && (
             <div className="flex flex-col items-end">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Active Entity</label>
@@ -856,13 +916,13 @@ const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="flex gap-1.5 scale-90">
                     <button 
-                      onClick={() => handleStatusUpdate('loan_applications', l.id, 'approved')}
+                      onClick={() => handleStatusUpdate('loan_requests', l.id, 'approved')}
                       className="p-2 bg-green-50 text-green-600 rounded-md hover:bg-green-100"
                     >
                       <Check size={14} />
                     </button>
                     <button 
-                      onClick={() => handleStatusUpdate('loan_applications', l.id, 'rejected')}
+                      onClick={() => handleStatusUpdate('loan_requests', l.id, 'rejected')}
                       className="p-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
                     >
                       <X size={14} />
@@ -897,13 +957,13 @@ const AdminDashboard: React.FC = () => {
               {selectedLeaveRequests.size > 0 && (
                 <div className="flex gap-1 animate-in fade-in slide-in-from-right-2">
                   <button 
-                    onClick={() => handleBulkStatusUpdate('leave_applications', selectedLeaveRequests, setSelectedLeaveRequests, 'approved')}
+                    onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'approved')}
                     className="px-2 py-1 bg-green-600 text-white text-[10px] font-bold rounded uppercase hover:bg-green-700 transition-colors"
                   >
                     Approve ({selectedLeaveRequests.size})
                   </button>
                   <button 
-                    onClick={() => handleBulkStatusUpdate('leave_applications', selectedLeaveRequests, setSelectedLeaveRequests, 'rejected')}
+                    onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'rejected')}
                     className="px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded uppercase hover:bg-red-700 transition-colors"
                   >
                     Reject
@@ -944,13 +1004,13 @@ const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="flex gap-1.5 scale-90">
                     <button 
-                      onClick={() => handleStatusUpdate('leave_applications', l.id, 'approved')}
+                      onClick={() => handleStatusUpdate('leave_requests', l.id, 'approved')}
                       className="p-2 bg-green-50 text-green-600 rounded-md hover:bg-green-100"
                     >
                       <Check size={14} />
                     </button>
                     <button 
-                      onClick={() => handleStatusUpdate('leave_applications', l.id, 'rejected')}
+                      onClick={() => handleStatusUpdate('leave_requests', l.id, 'rejected')}
                       className="p-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
                     >
                       <X size={14} />
@@ -973,12 +1033,11 @@ const AdminDashboard: React.FC = () => {
         <div className="lg:col-span-2">
           <TaxCalculator />
         </div>
-
-        {/* Payroll Intelligence Reports */}
-        <div className="lg:col-span-2">
-          <PayrollReports />
-        </div>
       </div>
+      </div>
+      </motion.div>
+      )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {confirmAction && (
@@ -998,6 +1057,9 @@ const AdminDashboard: React.FC = () => {
                     {confirmAction.type === 'final' ? 'Critical Action: Finalize' : 'Initiate Draft Batch'}
                   </h3>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Period: {confirmAction.monthDisplay}</p>
+                  {confirmAction.type === 'draft' && (
+                    <p className="text-[10px] font-black text-mine-green uppercase tracking-widest">Group: {confirmAction.group}</p>
+                  )}
                 </div>
               </div>
 
@@ -1011,7 +1073,7 @@ const AdminDashboard: React.FC = () => {
                     </>
                   ) : (
                     <>
-                      This will calculate gross pay, taxes, and loan deductions for all active personnel in the current subsidiary. 
+                      This will calculate gross pay, taxes, and loan deductions for all personnel in the <span className="font-bold text-mine-green">{confirmAction.group}</span> group for the current subsidiary. 
                       Existing drafts will be updated. No data will be visible to employees until finalized.
                     </>
                   )}

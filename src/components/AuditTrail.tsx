@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { 
   History, 
   Search, 
@@ -29,8 +28,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
 
   useEffect(() => {
     const fetchLogs = async () => {
-      // Defensive check: Only attempt fetch if user has admin context
-      // This avoids "Missing or insufficient permissions" console spam if a regular employee somehow loads this
+      // Defensive check
       if (!isSuperAdmin && subsidiaryId === undefined) {
         setLoading(false);
         return;
@@ -38,17 +36,28 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
 
       setLoading(true);
       try {
-        let q = query(collection(db, 'audit_logs'), orderBy('timestamp', 'desc'), limit(50));
+        let queryBuilder = supabase
+          .from('audit_logs')
+          .select('*')
+          .order('timestamp', { ascending: false })
+          .limit(50);
         
-        const snap = await getDocs(q);
-        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setLogs(data);
+        if (!isSuperAdmin && subsidiaryId) {
+          queryBuilder = queryBuilder.eq('subsidiary_id', subsidiaryId);
+        }
+
+        const { data, error } = await queryBuilder;
+        if (error) throw error;
+
+        setLogs((data || []).map(l => ({
+          ...l,
+          userName: l.details?.userName || 'Unknown',
+          userEmail: l.details?.userEmail || 'N/A',
+          details: l.details?.details || l.action
+        })));
       } catch (err: any) {
         console.error("Audit log fetch error:", err);
-        // Only show fatal error if it's not a standard permission check fail during init
-        if (err.code !== 'permission-denied') {
-          setError("Failed to synchronize with operational ledger.");
-        }
+        setError("Failed to synchronize with operational ledger.");
       } finally {
         setLoading(false);
       }
@@ -61,7 +70,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
       log.action?.toLowerCase().includes(search.toLowerCase()) ||
       log.userName?.toLowerCase().includes(search.toLowerCase()) ||
       log.userEmail?.toLowerCase().includes(search.toLowerCase()) ||
-      log.details?.toLowerCase().includes(search.toLowerCase());
+      String(log.details)?.toLowerCase().includes(search.toLowerCase());
     
     const matchesCategory = categoryFilter === 'all' || log.category === categoryFilter;
     
@@ -159,10 +168,10 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
                     <td className="py-4 pl-2">
                        <div className="flex flex-col">
                           <span className="text-[10px] font-mono font-bold text-gray-900">
-                            {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleDateString() : 'N/A'}
+                            {new Date(log.timestamp).toLocaleDateString()}
                           </span>
                           <span className="text-[9px] font-mono text-gray-400">
-                            {log.timestamp?.toDate ? log.timestamp.toDate().toLocaleTimeString() : ''}
+                            {new Date(log.timestamp).toLocaleTimeString()}
                           </span>
                        </div>
                     </td>
@@ -192,7 +201,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
                     </td>
                     <td className="py-4 pr-2">
                        <p className="text-[10px] text-gray-600 leading-tight bg-gray-100/50 p-2 rounded border border-gray-200/50 italic line-clamp-2 group-hover:line-clamp-none transition-all">
-                          {log.details || 'No additional metadata recorded.'}
+                          {typeof log.details === 'string' ? log.details : JSON.stringify(log.details)}
                        </p>
                     </td>
                   </motion.tr>

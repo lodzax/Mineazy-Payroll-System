@@ -1,9 +1,7 @@
 import React from 'react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
-// import { SupabaseAuthProvider, useSupabaseAuth } from './lib/SupabaseAuthContext';
 import { LogIn, Pickaxe, Mail, Lock, AlertCircle, RefreshCw } from 'lucide-react';
-import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
-import { auth } from './lib/firebase';
+import { supabase } from './lib/supabase';
 import Dashboard from './components/Dashboard';
 import AdminDashboard from './components/AdminDashboard';
 import EmployeeManagement from './components/EmployeeManagement';
@@ -16,6 +14,8 @@ import GlobalSearch from './components/GlobalSearch';
 function LoginScreen() {
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
+  const [fullName, setFullName] = React.useState('');
+  const [isSignUp, setIsSignUp] = React.useState(false);
   const [error, setError] = React.useState('');
   const [loading, setLoading] = React.useState(false);
 
@@ -27,7 +27,10 @@ function LoginScreen() {
     setLoading(true);
     setError('');
     try {
-      await sendPasswordResetEmail(auth, email);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
       alert(`Instruction node sent to ${email}. Please check your communication logs (inbox).`);
     } catch (err: any) {
       setError(err.message);
@@ -36,19 +39,30 @@ function LoginScreen() {
     }
   };
 
-  const handleEmailAuth = async (e: React.FormEvent) => {
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      try {
-        await signInWithEmailAndPassword(auth, email, password);
-      } catch (err: any) {
-        if (err.code === 'auth/user-not-found') {
-          await createUserWithEmailAndPassword(auth, email, password);
-        } else {
-          throw err;
-        }
+      if (isSignUp) {
+        const { error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName || email.split('@')[0],
+            }
+          }
+        });
+        if (signUpError) throw signUpError;
+        alert('Registration request sent. Please log in with your credentials.');
+        setIsSignUp(false);
+      } else {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (signInError) throw signInError;
       }
     } catch (err: any) {
       setError(err.message);
@@ -74,12 +88,30 @@ function LoginScreen() {
         <h1 className="text-3xl font-black text-mine-green uppercase tracking-tighter mb-1">Mineazy</h1>
         <p className="text-[10px] text-gray-500 font-black uppercase tracking-[4px] mb-10">Payroll Solutions</p>
         
-        <form onSubmit={handleEmailAuth} className="space-y-4">
+        <form onSubmit={handleAuth} className="space-y-4">
           {error && (
-            <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2 text-red-600 text-[10px] font-bold uppercase tracking-tight">
+            <div className="p-3 bg-red-50 border border-red-100 rounded-lg flex items-center gap-2 text-red-600 text-[10px] font-bold uppercase tracking-tight text-left">
               <AlertCircle size={14} /> {error}
             </div>
           )}
+
+          {isSignUp && (
+            <div className="relative text-left">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block px-1">Full Identity</label>
+              <div className="relative">
+                <LogIn className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input 
+                  type="text"
+                  required
+                  placeholder="Full Name"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-green"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="relative text-left">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block px-1">Credential ID</label>
             <div className="relative">
@@ -114,15 +146,26 @@ function LoginScreen() {
             className="btn btn-primary w-full !py-4 !text-sm flex items-center justify-center gap-2"
           >
             {loading ? <RefreshCw className="animate-spin" size={18} /> : <LogIn size={18} />}
-            {loading ? 'Authorizing...' : 'Enter System'}
+            {loading ? (isSignUp ? 'Initializing...' : 'Authorizing...') : (isSignUp ? 'Initialize Profile' : 'Enter System')}
           </button>
-          <div className="pt-2 text-center">
+
+          <div className="flex flex-col gap-3 pt-2">
+            {!isSignUp && (
+              <button 
+                type="button"
+                onClick={handlePasswordReset}
+                className="text-[9px] font-black text-mine-gold uppercase tracking-widest hover:underline decoration-mine-gold/50 underline-offset-4"
+              >
+                Forgot system credentials? Reset node.
+              </button>
+            )}
+            
             <button 
               type="button"
-              onClick={handlePasswordReset}
-              className="text-[9px] font-black text-mine-gold uppercase tracking-widest hover:underline decoration-mine-gold/50 underline-offset-4"
+              onClick={() => setIsSignUp(!isSignUp)}
+              className="text-[9px] font-black text-gray-400 uppercase tracking-widest hover:text-mine-gold transition-colors"
             >
-              Forgot system credentials? Reset node.
+              {isSignUp ? 'Back to Authentication' : 'Request Enterprise Access (Sign Up)'}
             </button>
           </div>
         </form>
@@ -191,12 +234,20 @@ function MainApp() {
         </div>
 
         <div className="flex items-center gap-3 sm:gap-5">
-          <div className="text-right hidden sm:block">
-            <div className="text-sm font-semibold">{profile?.fullName}</div>
-            <div className="text-[11px] opacity-80 uppercase tracking-wider">{profile?.role} Administrator</div>
+          <div className="text-right">
+            <div className="text-xs sm:text-sm font-semibold leading-none mb-0.5">{profile?.fullName}</div>
+            <div className="text-[8px] sm:text-[11px] opacity-80 uppercase tracking-wider leading-none">
+              {isSuperAdmin ? 'Security Council' : isAdmin ? 'Site Manager' : 'Operational Node'}
+            </div>
           </div>
-          <div className="w-8 h-8 sm:w-9 sm:h-9 bg-white rounded-full border-2 border-mine-gold overflow-hidden shrink-0">
-            {user.photoURL ? <img src={user.photoURL} alt="" referrerPolicy="no-referrer" /> : null}
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white rounded-full border-2 border-mine-gold overflow-hidden shrink-0 flex items-center justify-center">
+            {(user as any).photoURL || user.user_metadata?.avatar_url ? (
+              <img src={(user as any).photoURL || user.user_metadata?.avatar_url} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-mine-green font-black text-xs sm:text-sm uppercase">
+                {profile?.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'M'}
+              </span>
+            )}
           </div>
         </div>
       </header>
@@ -253,9 +304,7 @@ function MainApp() {
 export default function App() {
   return (
     <AuthProvider>
-    {/* <SupabaseAuthProvider> */}
       <MainApp />
-    {/* </SupabaseAuthProvider> */}
     </AuthProvider>
   );
 }

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, query, where, getDocs, orderBy, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
 import { Calendar, CheckCircle, Send, AlertCircle, MapPin, ChevronLeft, ChevronRight, Info, AlertTriangle } from 'lucide-react';
@@ -115,13 +114,21 @@ const LeaveForm: React.FC = () => {
 
   const fetchHistory = async () => {
     if (!user) return;
-    const q = query(
-      collection(db, 'leave_applications'),
-      where('employeeId', '==', user.uid),
-      orderBy('createdAt', 'desc')
-    );
-    const snap = await getDocs(q);
-    setHistory(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const { data, error } = await supabase
+      .from('leave_requests')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error(error);
+    } else {
+      setHistory((data || []).map(lv => ({
+        ...lv,
+        startDate: lv.start_date,
+        endDate: lv.end_date
+      })));
+    }
   };
 
   useEffect(() => {
@@ -135,16 +142,18 @@ const LeaveForm: React.FC = () => {
     setMessage(null);
 
     try {
-      await addDoc(collection(db, 'leave_applications'), {
-        employeeId: user.uid,
-        subsidiaryId: profile?.subsidiaryId || '',
+      const { error } = await supabase.from('leave_requests').insert({
+        user_id: user.id,
+        subsidiary_id: profile?.subsidiaryId || null,
         type,
-        startDate,
-        endDate,
+        start_date: startDate,
+        end_date: endDate,
         reason,
         status: 'pending',
-        createdAt: serverTimestamp()
+        created_at: new Date().toISOString()
       });
+
+      if (error) throw error;
 
       await logAction({
         action: 'Leave Application Submitted',

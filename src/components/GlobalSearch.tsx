@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, query, where, getDocs, limit } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { Search, Loader2, User, Clock, FileText, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -47,44 +46,37 @@ const GlobalSearch: React.FC<{ setActiveTab: (tab: string) => void }> = ({ setAc
     setIsOpen(true);
     
     try {
-      const termLower = term.toLowerCase();
-      const termUpper = term.charAt(0).toUpperCase() + term.slice(1);
+      const dbTerm = `%${term}%`;
       
-      const [userSnap, timesheetSnap, payslipSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users'), where('fullName', '>=', termUpper), where('fullName', '<=', termUpper + '\uf8ff'), limit(5))),
-        getDocs(query(collection(db, 'timesheets'), limit(30))),
-        getDocs(query(collection(db, 'payslips'), limit(30)))
+      const [userRes, timesheetRes, payslipRes] = await Promise.all([
+        supabase.from('users').select('*').ilike('full_name', dbTerm).limit(5),
+        supabase.from('timesheets').select('*').ilike('description', dbTerm).limit(5), // Fallback to description if no user name in timesheet
+        supabase.from('payslips').select('*').ilike('month_year', dbTerm).limit(5)
       ]);
 
-      const employees: SearchResult[] = userSnap.docs.map(doc => ({
-        id: doc.id,
+      const employees: SearchResult[] = (userRes.data || []).map(u => ({
+        id: u.id,
         type: 'employee',
-        title: doc.data().fullName,
-        subtitle: doc.data().jobTitle || doc.data().role || 'Personnel',
-        data: doc.data()
+        title: u.full_name,
+        subtitle: u.job_title || u.role || 'Personnel',
+        data: u
       }));
 
-      const timesheets: SearchResult[] = timesheetSnap.docs
-        .filter(doc => doc.data().employeeName?.toLowerCase().includes(termLower))
-        .map(doc => ({
-          id: doc.id,
-          type: 'timesheet' as const,
-          title: `Timesheet: ${doc.data().employeeName}`,
-          subtitle: `Month: ${doc.data().month || 'N/A'}`,
-          data: doc.data()
-        }))
-        .slice(0, 5);
+      const timesheets: SearchResult[] = (timesheetRes.data || []).map(t => ({
+        id: t.id,
+        type: 'timesheet',
+        title: `Timesheet: ${t.date}`,
+        subtitle: `Ref: ${t.id.slice(0, 8)}`,
+        data: t
+      }));
 
-      const payslips: SearchResult[] = payslipSnap.docs
-        .filter(doc => doc.data().fullName?.toLowerCase().includes(termLower))
-        .map(doc => ({
-          id: doc.id,
-          type: 'payslip' as const,
-          title: `Payslip: ${doc.data().fullName}`,
-          subtitle: `Period: ${doc.data().month || 'N/A'}`,
-          data: doc.data()
-        }))
-        .slice(0, 5);
+      const payslips: SearchResult[] = (payslipRes.data || []).map(p => ({
+        id: p.id,
+        type: 'payslip',
+        title: `Payslip: ${p.month_year}`,
+        subtitle: `Ref: ${p.id.slice(0, 8)}`,
+        data: p
+      }));
 
       setResults([...employees, ...timesheets, ...payslips]);
     } catch (error) {
