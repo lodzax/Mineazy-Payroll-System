@@ -72,7 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
   };
 
-  const isSuperAdmin = user?.email === 'lodzax@gmail.com' || user?.email === 'accounts@mineazy.co.zw' || profile?.role === 'superadmin';
+  const isSuperAdmin = user?.email?.toLowerCase() === 'lodzax@gmail.com' || user?.email?.toLowerCase() === 'accounts@mineazy.co.zw' || profile?.role === 'superadmin';
   const isAdmin = isSuperAdmin || profile?.role === 'admin' || profile?.role === 'management';
 
   // Add uid alias for compatibility with Firebase-era code

@@ -277,26 +277,29 @@ const EmployeeManagement: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
+      // Fetch all personnel data ordered by most recent first
       let queryBuilder = supabase.from('users').select('*').order('created_at', { ascending: false });
       
+      // Enforce subsidiary scoping for non-global admins
       if (!isSuperAdmin) {
         if (profile?.subsidiary_id) {
           queryBuilder = queryBuilder.eq('subsidiary_id', profile.subsidiary_id);
         } else {
-          // If no subsidiary assigned, they can't see employees (safety)
+          // Absolute safety gate: if no node assigned, show zero records
           queryBuilder = queryBuilder.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
         }
       }
 
       const { data: usersData, error: usersError } = await queryBuilder;
-      
-      let subsData: any[] = [];
-      if (isSuperAdmin) {
-        const { data, error } = await supabase.from('subsidiaries').select('*');
-        if (!error) subsData = data || [];
-      }
-
       if (usersError) throw usersError;
+
+      // Conditional subsidiary extraction based on elevation level
+      let subsData: any[] = [];
+      const { data: subQueryRes, error: subError } = await supabase.from('subsidiaries').select('*').order('name');
+      
+      if (!subError) {
+        subsData = subQueryRes || [];
+      }
 
       const allEmps: any[] = (usersData || []).map(u => ({
         ...u,
@@ -312,8 +315,10 @@ const EmployeeManagement: React.FC = () => {
       setEmployees(allEmps);
       setSubsidiaries(subsData);
     } catch (err: any) {
-      console.error("Failed to fetch data:", err);
-      setError(err.message || "Failed to synchronize with personnel ledger.");
+      console.error("Synchronization Failure:", err);
+      setError(err.message === "Failed to fetch" 
+        ? "Network error detected while reaching Supabase nodes. Verify VITE_SUPABASE_URL." 
+        : (err.message || "Failed to synchronize with personnel ledger."));
     } finally {
       setLoading(false);
     }
