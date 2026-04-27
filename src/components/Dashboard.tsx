@@ -81,7 +81,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
     }
   }, [user]);
 
-  const combinedStatsLeaveBalance = profile?.annualLeaveBalance || 0;
+  const combinedStatsLeaveBalance = profile?.annual_leave_balance || 0;
 
   if (activeTab === 'timesheets') return <TimesheetForm />;
   if (activeTab === 'leave') return <LeaveForm />;
@@ -316,8 +316,8 @@ const PerformanceView: React.FC = () => {
       doc.line(20, 58, 190, 58);
       
       doc.setFontSize(10);
-      doc.text(`Full Name: ${profile?.fullName || user?.email}`, 20, 68);
-      doc.text(`Designation: ${profile?.jobTitle || 'N/A'}`, 20, 75);
+      doc.text(`Full Name: ${profile?.full_name || user?.email}`, 20, 68);
+      doc.text(`Designation: ${profile?.job_title || 'N/A'}`, 20, 75);
       doc.text(`Department: ${profile?.department || 'N/A'}`, 20, 82);
       doc.text(`Review Date: ${new Date(review.reviewDate).toLocaleDateString()}`, 140, 68);
       doc.text(`Rating: ${review.overallRating}.0 / 5.0`, 140, 75);
@@ -365,7 +365,7 @@ const PerformanceView: React.FC = () => {
       doc.text(`Generation Node: AIS-PROD-ZIMRA-HUB`, 20, nextY + 22);
       doc.text(`Timestamp: ${new Date().toISOString()}`, 20, nextY + 27);
       
-      doc.save(`Personnel_Review_${(profile?.fullName || 'User').replace(/\s+/g, '_')}_${review.reviewDate}.pdf`);
+      doc.save(`Personnel_Review_${(profile?.full_name || 'User').replace(/\s+/g, '_')}_${review.reviewDate}.pdf`);
     } catch (err) {
       console.error("PDF Fail:", err);
       alert("Failed to generate PDF audit report.");

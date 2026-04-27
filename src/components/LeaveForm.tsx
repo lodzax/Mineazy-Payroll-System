@@ -144,7 +144,7 @@ const LeaveForm: React.FC = () => {
     try {
       const { error } = await supabase.from('leave_requests').insert({
         user_id: user.id,
-        subsidiary_id: profile?.subsidiaryId || null,
+        subsidiary_id: profile?.subsidiary_id || null,
         type,
         start_date: startDate,
         end_date: endDate,
@@ -159,7 +159,7 @@ const LeaveForm: React.FC = () => {
         action: 'Leave Application Submitted',
         category: 'personnel',
         details: `Requested ${type} leave from ${startDate} to ${endDate}. Working days: ${dateStats.workingDays}.`,
-        userName: profile?.fullName || user.displayName,
+        userName: profile?.full_name || user.displayName,
         userEmail: user.email
       });
 
@@ -186,7 +186,7 @@ const LeaveForm: React.FC = () => {
           <div className="text-right">
             <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Available Balance</p>
             <p className="text-xl font-black text-orange-600 font-mono">
-              {(profile?.annualLeaveBalance || 0).toFixed(1)} Days
+              {(profile?.annual_leave_balance || 0).toFixed(1)} Days
             </p>
           </div>
           <Calendar className="text-orange-300" size={24} />
@@ -267,11 +267,11 @@ const LeaveForm: React.FC = () => {
                   </div>
                 </div>
 
-                {type === 'annual' && dateStats.workingDays > (profile?.annualLeaveBalance || 0) && (
+                {type === 'annual' && dateStats.workingDays > (profile?.annual_leave_balance || 0) && (
                   <div className="bg-red-50 border border-red-100 p-2.5 rounded-lg flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
                     <AlertCircle size={14} className="text-red-600 mt-0.5 shrink-0" />
                     <p className="text-[10px] font-bold text-red-700 leading-tight">
-                      Insufficient Balance. Requested working days ({dateStats.workingDays}) exceed your available vault credits ({(profile?.annualLeaveBalance || 0).toFixed(1)}).
+                      Insufficient Balance. Requested working days ({dateStats.workingDays}) exceed your available vault credits ({(profile?.annual_leave_balance || 0).toFixed(1)}).
                     </p>
                   </div>
                 )}

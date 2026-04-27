@@ -92,7 +92,7 @@ const LoanForm: React.FC = () => {
     try {
       const { error } = await supabase.from('loan_requests').insert({
         user_id: user.id,
-        subsidiary_id: profile?.subsidiaryId || null,
+        subsidiary_id: profile?.subsidiary_id || null,
         amount: Number(amount),
         currency: profile?.currency || 'USD',
         installment_count: Number(installments),
@@ -108,7 +108,7 @@ const LoanForm: React.FC = () => {
         action: 'Loan Application Submitted',
         category: 'financial',
         details: `Applied for ${profile?.currency || 'USD'} ${amount} over ${installments} months. Interest rate: ${interestRate}%.`,
-        userName: profile?.fullName || user.displayName,
+        userName: profile?.full_name || user.email,
         userEmail: user.email
       });
 

@@ -105,7 +105,7 @@ const TimesheetForm: React.FC = () => {
       const month = date.slice(0, 7); // YYYY-MM
       const { error } = await supabase.from('timesheets').insert({
         user_id: user.id,
-        subsidiary_id: profile?.subsidiaryId || null,
+        subsidiary_id: profile?.subsidiary_id || null,
         submission_mode: submissionMode,
         date,
         month_year: month,
@@ -123,7 +123,7 @@ const TimesheetForm: React.FC = () => {
         action: 'Timesheet Submission',
         category: 'performance',
         details: `Submitted ${submissionMode} timesheet for ${date}: ${hours}h std, ${overtime}h OT.`,
-        userName: profile?.fullName || user.displayName,
+        userName: profile?.full_name || user.email,
         userEmail: user.email
       });
 
@@ -191,7 +191,7 @@ const TimesheetForm: React.FC = () => {
             
             const { error } = await supabase.from('timesheets').insert({
               user_id: user.id,
-              subsidiary_id: profile?.subsidiaryId || null,
+              subsidiary_id: profile?.subsidiary_id || null,
               submission_mode: mode,
               date: dateStr,
               month_year: month,
@@ -209,7 +209,7 @@ const TimesheetForm: React.FC = () => {
               action: 'Bulk Timesheet Import',
               category: 'performance',
               details: `Successfully imported ${successCount} timesheet entries via CSV.`,
-              userName: profile?.fullName || user.displayName,
+              userName: profile?.full_name || user.email,
               userEmail: user.email
             });
           }
@@ -258,7 +258,7 @@ const TimesheetForm: React.FC = () => {
         category: 'performance',
         details: `Updated entry ${editingEntry.id}: ${editHours}h std, ${editOvertime}h OT.`,
         entityId: editingEntry.id,
-        userName: profile?.fullName || user.displayName,
+        userName: profile?.full_name || user.email,
         userEmail: user.email
       });
 

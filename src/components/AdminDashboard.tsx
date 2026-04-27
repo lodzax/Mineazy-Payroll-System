@@ -61,7 +61,7 @@ const Pagination: React.FC<{
 };
 
 const AdminDashboard: React.FC = () => {
-  const { user, profile, isSuperAdmin } = useAuth();
+  const { user, profile, isSuperAdmin, loading: authLoading } = useAuth();
 
   const [employees, setEmployees] = useState<any[]>([]);
   const [subsidiaries, setSubsidiaries] = useState<any[]>([]);
@@ -90,7 +90,7 @@ const AdminDashboard: React.FC = () => {
     setLoading(true);
     try {
       const month = new Date().toISOString().slice(0, 7);
-      const specificSubId = subFilter || profile?.subsidiaryId;
+      const specificSubId = subFilter || profile?.subsidiary_id;
       
       const { data: batchData } = await supabase
         .from('payroll_batches')
@@ -101,8 +101,8 @@ const AdminDashboard: React.FC = () => {
       setIsBatchFinalized(finalized);
 
       let usersQuery = supabase.from('users').select('*').order('created_at', { ascending: false });
-      if (!isSuperAdmin && profile?.subsidiaryId) {
-        usersQuery = usersQuery.eq('subsidiary_id', profile.subsidiaryId);
+      if (!isSuperAdmin && profile?.subsidiary_id) {
+        usersQuery = usersQuery.eq('subsidiary_id', profile.subsidiary_id);
       } else if (!isSuperAdmin) {
         // If not superadmin and no subsidiary, show no users to be safe
         usersQuery = usersQuery.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
@@ -117,9 +117,9 @@ const AdminDashboard: React.FC = () => {
         ...u, 
         uid: u.id, 
         subsidiaryId: u.subsidiary_id, 
-        fullName: u.full_name, 
-        baseSalary: u.base_salary, 
-        annualLeaveBalance: u.annual_leave_balance,
+        fullName: u.full_name || 'Anonymous User', 
+        baseSalary: u.base_salary || 0, 
+        annualLeaveBalance: u.annual_leave_balance || 0,
         payrollGroup: u.payroll_group || 'General'
       }));
       const allSubs: any[] = (subRes.data || []);
@@ -134,8 +134,8 @@ const AdminDashboard: React.FC = () => {
       // Fetch pending requests
       const fetchCollection = async (table: string) => {
         let q = supabase.from(table).select('*').in('status', ['pending', 'submitted']);
-        if (!isSuperAdmin && profile?.subsidiaryId) {
-          q = q.eq('subsidiary_id', profile.subsidiaryId);
+        if (!isSuperAdmin && profile?.subsidiary_id) {
+          q = q.eq('subsidiary_id', profile.subsidiary_id);
         } else if (!isSuperAdmin) {
           // Safeguard
           q = q.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
@@ -171,8 +171,10 @@ const AdminDashboard: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchData();
-  }, [subFilter]);
+    if (!authLoading) {
+      fetchData();
+    }
+  }, [authLoading, subFilter, isSuperAdmin, profile?.subsidiary_id]);
 
   const calculateLeaveDays = (start: string, end: string) => {
     const s = new Date(start);

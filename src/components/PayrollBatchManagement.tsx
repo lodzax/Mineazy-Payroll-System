@@ -46,8 +46,8 @@ const PayrollBatchManagement: React.FC = () => {
     try {
       let query = supabase.from('payroll_batches').select('*').order('created_at', { ascending: false });
       
-      if (!isSuperAdmin && profile?.subsidiaryId) {
-        query = query.eq('subsidiary_id', profile.subsidiaryId);
+      if (!isSuperAdmin && profile?.subsidiary_id) {
+        query = query.eq('subsidiary_id', profile.subsidiary_id);
       }
 
       const { data, error } = await query;
@@ -75,7 +75,7 @@ const PayrollBatchManagement: React.FC = () => {
       const { error } = await supabase.from('payroll_batches').insert({
         month_year: form.month,
         payroll_group: form.group,
-        subsidiary_id: form.subsidiaryId || (isSuperAdmin ? null : profile?.subsidiaryId) || null,
+        subsidiary_id: form.subsidiaryId || (isSuperAdmin ? null : profile?.subsidiary_id) || null,
         notes: form.notes,
         status: 'draft'
       });

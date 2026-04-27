@@ -159,7 +159,7 @@ const SearchableSelect: React.FC<{
 };
 
 const EmployeeManagement: React.FC = () => {
-  const { user, profile, isSuperAdmin, isAdmin } = useAuth();
+  const { user, profile, isSuperAdmin, isAdmin, loading: authLoading } = useAuth();
 
   const [employees, setEmployees] = useState<any[]>([]);
   const [subsidiaries, setSubsidiaries] = useState<any[]>([]);
@@ -268,8 +268,10 @@ const EmployeeManagement: React.FC = () => {
   });
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!authLoading) {
+      fetchData();
+    }
+  }, [authLoading, isSuperAdmin, profile?.subsidiary_id]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -278,8 +280,8 @@ const EmployeeManagement: React.FC = () => {
       let queryBuilder = supabase.from('users').select('*').order('created_at', { ascending: false });
       
       if (!isSuperAdmin) {
-        if (profile?.subsidiaryId) {
-          queryBuilder = queryBuilder.eq('subsidiary_id', profile.subsidiaryId);
+        if (profile?.subsidiary_id) {
+          queryBuilder = queryBuilder.eq('subsidiary_id', profile.subsidiary_id);
         } else {
           // If no subsidiary assigned, they can't see employees (safety)
           queryBuilder = queryBuilder.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
@@ -299,16 +301,16 @@ const EmployeeManagement: React.FC = () => {
       const allEmps: any[] = (usersData || []).map(u => ({
         ...u,
         uid: u.id,
-        fullName: u.full_name,
-        jobTitle: u.job_title,
+        fullName: u.full_name || 'Anonymous User',
+        jobTitle: u.job_title || 'No Title',
         subsidiaryId: u.subsidiary_id,
-        baseSalary: u.base_salary,
+        baseSalary: u.base_salary || 0,
         payrollGroup: u.payroll_group || 'General',
         createdAt: u.created_at
       }));
 
       setEmployees(allEmps);
-      setSubsidiaries(subsData.map(s => ({ ...s, id: s.id })));
+      setSubsidiaries(subsData);
     } catch (err: any) {
       console.error("Failed to fetch data:", err);
       setError(err.message || "Failed to synchronize with personnel ledger.");
@@ -336,7 +338,7 @@ const EmployeeManagement: React.FC = () => {
         department: form.department,
         job_title: form.jobTitle,
         branch: form.branch,
-        subsidiary_id: isSuperAdmin ? (form.subsidiaryId || null) : (profile?.subsidiaryId || null),
+        subsidiary_id: isSuperAdmin ? (form.subsidiaryId || null) : (profile?.subsidiary_id || null),
         base_salary: Number(form.baseSalary),
         currency: form.currency,
         status: form.status,
@@ -738,8 +740,9 @@ const EmployeeManagement: React.FC = () => {
   };
 
   const filtered = employees.filter(e => {
+    const name = e.fullName || '';
     const searchLower = searchTerm.toLowerCase();
-    const nameMatch = e.fullName.toLowerCase().includes(searchLower);
+    const nameMatch = name.toLowerCase().includes(searchLower);
     const subName = subsidiaries.find(s => s.id === e.subsidiaryId)?.name || '';
     
     // In global search within the component, admins can also find by status, subsidiary name, or subsidiary ID
@@ -1846,7 +1849,7 @@ const EmployeeManagement: React.FC = () => {
                    <span>UID: {selectedUser.uid.substring(0, 8)}...</span>
                 </div>
                 <div className="flex items-center gap-2">
-                   <span>Node: {profile?.fullName || user?.email}</span>
+                   <span>Node: {profile?.full_name || user?.email}</span>
                 </div>
               </div>
             </motion.div>
@@ -1946,7 +1949,7 @@ const EmployeeManagement: React.FC = () => {
 
       {/* Audit Trail Intelligence */}
       <section className="mt-12">
-        <AuditTrail subsidiaryId={profile?.subsidiaryId} isSuperAdmin={isSuperAdmin} />
+        <AuditTrail subsidiaryId={profile?.subsidiary_id} isSuperAdmin={isSuperAdmin} />
       </section>
 
     </div>

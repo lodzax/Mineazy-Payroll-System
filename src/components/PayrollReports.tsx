@@ -126,7 +126,7 @@ const PayrollReports: React.FC = () => {
         action: 'Report Generation',
         category: 'report',
         details: `Generated ${selectedReport.name} for period ${startDate} to ${endDate}. Records: ${exportData.length}`,
-        userName: profile?.fullName || user?.email,
+        userName: profile?.full_name || user?.email,
         userEmail: user?.email || ''
       });
 

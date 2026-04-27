@@ -235,7 +235,7 @@ function MainApp() {
 
         <div className="flex items-center gap-3 sm:gap-5">
           <div className="text-right">
-            <div className="text-xs sm:text-sm font-semibold leading-none mb-0.5">{profile?.fullName}</div>
+            <div className="text-xs sm:text-sm font-semibold leading-none mb-0.5">{profile?.full_name}</div>
             <div className="text-[8px] sm:text-[11px] opacity-80 uppercase tracking-wider leading-none">
               {isSuperAdmin ? 'Security Council' : isAdmin ? 'Site Manager' : 'Operational Node'}
             </div>
@@ -245,7 +245,7 @@ function MainApp() {
               <img src={(user as any).photoURL || user.user_metadata?.avatar_url} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
             ) : (
               <span className="text-mine-green font-black text-xs sm:text-sm uppercase">
-                {profile?.fullName?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'M'}
+                {profile?.full_name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'M'}
               </span>
             )}
           </div>

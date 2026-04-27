@@ -22,7 +22,7 @@ export async function logAction(entry: AuditLogEntry) {
   try {
     // If subsidiaryId isn't provided, try to get it from the user's profile
     let subId = entry.subsidiaryId;
-    if (!subId) {
+    if (!subId || subId === "") {
       const { data: profile } = await supabase
         .from('users')
         .select('subsidiary_id')
@@ -30,6 +30,9 @@ export async function logAction(entry: AuditLogEntry) {
         .maybeSingle();
       if (profile) subId = profile.subsidiary_id;
     }
+
+    // Explicitly set to null if still empty string to avoid DB errors
+    if (subId === "") subId = undefined;
 
     const { error } = await supabase
       .from('audit_logs')

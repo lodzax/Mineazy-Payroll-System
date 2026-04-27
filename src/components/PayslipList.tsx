@@ -112,7 +112,7 @@ const PayslipList: React.FC = () => {
       const pdfHeight = (img.height * pdfWidth) / img.width;
       
       pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`payslip-${selectedPayslip.month}-${profile?.fullName?.replace(/\s+/g, '-').toLowerCase()}.pdf`);
+      pdf.save(`payslip-${selectedPayslip.month}-${profile?.full_name?.replace(/\s+/g, '-').toLowerCase()}.pdf`);
     } catch (err) {
       console.error("PDF generation failed:", err);
     } finally {
@@ -279,9 +279,9 @@ const PayslipList: React.FC = () => {
                         <div className="grid grid-cols-2 gap-12 mt-8">
                           <div>
                             <h4 className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Employee Information</h4>
-                            <p className="text-sm font-black text-gray-900 uppercase tracking-tight">{profile?.fullName}</p>
+                            <p className="text-sm font-black text-gray-900 uppercase tracking-tight">{profile?.full_name}</p>
                             <p className="text-xs font-mono text-gray-500">{profile?.employeeId}</p>
-                            <p className="text-xs font-medium text-gray-500 mt-1">{profile?.jobTitle || profile?.role}</p>
+                            <p className="text-xs font-medium text-gray-500 mt-1">{profile?.job_title || profile?.role}</p>
                           </div>
                           <div>
                             <h4 className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Reference Details</h4>
