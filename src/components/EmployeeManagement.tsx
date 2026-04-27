@@ -195,7 +195,9 @@ const EmployeeManagement: React.FC = () => {
     currency: 'USD',
     status: 'active',
     payrollGroup: 'General',
-    password: 'Mining2026!'
+    password: 'Mining2026!',
+    annualLeaveBalance: 20,
+    leaveBalance: 20
   });
 
   // PII Visibility & Editing state
@@ -345,6 +347,8 @@ const EmployeeManagement: React.FC = () => {
         branch: form.branch,
         subsidiary_id: isSuperAdmin ? (form.subsidiaryId || null) : (profile?.subsidiary_id || null),
         base_salary: Number(form.baseSalary),
+        annual_leave_balance: Number(form.annualLeaveBalance),
+        leave_balance: Number(form.leaveBalance),
         currency: form.currency,
         status: form.status,
         payroll_group: form.payrollGroup
@@ -779,7 +783,7 @@ const EmployeeManagement: React.FC = () => {
           <p className="text-sm text-gray-500">Recruit, manage and audit site personnel</p>
         </div>
         <button 
-          onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!' }); setIsModalOpen(true); }}
+          onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!', annualLeaveBalance: 20, leaveBalance: 20 }); setIsModalOpen(true); }}
           className="btn btn-primary flex items-center gap-2"
         >
           <Plus size={18} /> Recruit Staff
@@ -1077,6 +1081,8 @@ const EmployeeManagement: React.FC = () => {
                               branch: emp.branch || '', 
                               subsidiaryId: emp.subsidiaryId || '', 
                               baseSalary: emp.baseSalary || 1000, 
+                              annualLeaveBalance: emp.annual_leave_balance || 20,
+                              leaveBalance: emp.leave_balance || 20,
                               currency: emp.currency || 'USD', 
                               status: emp.status || 'active', 
                               payrollGroup: emp.payrollGroup || 'General',
@@ -1121,7 +1127,7 @@ const EmployeeManagement: React.FC = () => {
               <div className="p-12 text-center space-y-4">
                 <p className="text-gray-400 italic text-sm">No matching personnel records found.</p>
                 <button 
-                  onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!' }); setIsModalOpen(true); }}
+                  onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!', annualLeaveBalance: 20, leaveBalance: 20 }); setIsModalOpen(true); }}
                   className="btn btn-primary mx-auto flex items-center gap-2"
                 >
                   <Plus size={18} /> Add New Employee
@@ -1243,6 +1249,26 @@ const EmployeeManagement: React.FC = () => {
                       <option value="suspended">Suspended</option>
                       <option value="terminated">Terminated</option>
                     </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Annual Leave Caps</label>
+                    <input 
+                      type="number" 
+                      value={form.annualLeaveBalance} 
+                      onChange={(e) => setForm({...form, annualLeaveBalance: e.target.value})} 
+                      className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current Leave Bal</label>
+                    <input 
+                      type="number" 
+                      value={form.leaveBalance} 
+                      onChange={(e) => setForm({...form, leaveBalance: e.target.value})} 
+                      className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold" 
+                    />
                   </div>
                 </div>
                 <div className="space-y-1">

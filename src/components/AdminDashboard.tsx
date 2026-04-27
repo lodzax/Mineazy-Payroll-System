@@ -198,7 +198,7 @@ const AdminDashboard: React.FC = () => {
       if (collectionName === 'leave_requests' && status === 'approved' && record.status !== 'approved' && record.type === 'annual') {
         const { data: emp, error: empErr } = await supabase
           .from('users')
-          .select('annual_leave_balance')
+          .select('annual_leave_balance, leave_balance')
           .eq('id', record.user_id)
           .single();
           
@@ -206,10 +206,14 @@ const AdminDashboard: React.FC = () => {
         
         const leaveDays = calculateLeaveDays(record.start_date, record.end_date);
         
+        const currentAnnual = emp.annual_leave_balance || 0;
+        const currentLeave = emp.leave_balance || 0;
+
         await supabase
           .from('users')
           .update({
-            annual_leave_balance: (emp.annual_leave_balance || 0) - leaveDays
+            annual_leave_balance: currentAnnual - leaveDays,
+            leave_balance: currentLeave - leaveDays
           })
           .eq('id', record.user_id);
       }
@@ -349,7 +353,7 @@ const AdminDashboard: React.FC = () => {
 
         const totalDeductions = tax + aidsLevy + nssa + loanDeduction;
         const netPay = totalGross - totalDeductions;
-        const newBalance = (emp.annualLeaveBalance || 0) + 2.5;
+        const newBalance = (emp.annual_leave_balance || 0) + 2.5;
 
         const { error: payslipErr } = await supabase.from('payslips').insert({
           user_id: emp.id,
@@ -380,7 +384,10 @@ const AdminDashboard: React.FC = () => {
         });
 
         if (!payslipErr) {
-          await supabase.from('users').update({ annual_leave_balance: newBalance }).eq('id', emp.id);
+          await supabase.from('users').update({ 
+            annual_leave_balance: newBalance,
+            leave_balance: newBalance 
+          }).eq('id', emp.id);
           count++;
         }
       }
