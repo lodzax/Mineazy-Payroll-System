@@ -107,10 +107,9 @@ const LoanForm: React.FC = () => {
         amount: Number(amount),
         currency: profile?.currency || 'USD',
         installment_count: finalTerm,
-        installments: finalTerm, // Supporting both schema versions
+        installments: finalTerm,
+        purpose: reason,
         interest_rate: Number(interestRate),
-        reason: reason,
-        purpose: reason, // Supporting both schema versions
         status: 'pending',
         created_at: new Date().toISOString()
       };
@@ -440,7 +439,7 @@ const LoanForm: React.FC = () => {
                 <div className="space-y-2">
                   <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Justification / Reason</p>
                   <p className="text-xs text-gray-600 bg-gray-50 p-3 rounded-md italic leading-relaxed">
-                    "{selectedLoan.reason}"
+                    "{selectedLoan.purpose}"
                   </p>
                 </div>
 
