@@ -47,14 +47,14 @@ const Pagination: React.FC<{
     <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/30">
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-          Node {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalItems)} of {totalItems}
+          Record {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalItems)} of {totalItems}
         </span>
       </div>
       <div className="flex items-center gap-2">
         <button
           disabled={currentPage === 1}
           onClick={() => onPageChange(currentPage - 1)}
-          className="p-2 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+          className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
         >
           <ChevronLeft size={16} />
         </button>
@@ -63,16 +63,20 @@ const Pagination: React.FC<{
             <button
               key={p}
               onClick={() => onPageChange(p)}
-              className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${currentPage === p ? 'bg-mine-green text-white shadow-lg shadow-green-200' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-green hover:text-mine-green'}`}
+              className={`w-8 h-8 rounded-lg text-[10px] font-bold transition-all ${currentPage === p ? 'bg-mine-green text-white shadow-lg shadow-green-200' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-green hover:text-mine-green'}`}
             >
               {p}
             </button>
-          ))}
+          )).filter((_, idx) => {
+            if (totalPages <= 7) return true;
+            if (idx === 0 || idx === totalPages - 1) return true;
+            return Math.abs(idx - (currentPage - 1)) <= 1;
+          })}
         </div>
         <button
           disabled={currentPage === totalPages}
           onClick={() => onPageChange(currentPage + 1)}
-          className="p-2 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+          className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
         >
           <ChevronRight size={16} />
         </button>
@@ -198,6 +202,19 @@ const EmployeeManagement: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
   
+  // Reset pages when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, deptFilter, roleFilter, branchFilter, statusFilter, subFilter]);
+
+  useEffect(() => {
+    setTimesheetPage(1);
+  }, [timesheets.length]);
+
+  useEffect(() => {
+    setLeavePage(1);
+  }, [leaveRequests.length]);
+
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmp, setEditingEmp] = useState<any | null>(null);
@@ -898,6 +915,12 @@ const EmployeeManagement: React.FC = () => {
       setProcessing(false);
     }
   };
+
+  const [reviewsPage, setReviewsPage] = useState(1);
+
+  useEffect(() => {
+    setReviewsPage(1);
+  }, [selectedUser?.uid]);
 
   const fetchReviews = async (employee: any) => {
     setSelectedUser(employee);
@@ -1726,7 +1749,7 @@ const EmployeeManagement: React.FC = () => {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden"
+              className="bg-white w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden"
             >
               <div className="bg-gray-50 p-4 px-6 border-b flex justify-between items-center">
                 <h3 className="font-extrabold text-mine-green uppercase text-xs tracking-widest flex items-center gap-2">
@@ -1734,126 +1757,142 @@ const EmployeeManagement: React.FC = () => {
                 </h3>
                 <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-gray-400" /></button>
               </div>
-              <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Full Name</label>
-                  <input required value={form.fullName} onChange={(e) => setForm({...form, fullName: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
-                </div>
-                {!editingEmp && (
-                  <div className="space-y-4">
+              <form onSubmit={handleSubmit} className="p-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
+                  {/* Left Column: Personal & Professional */}
+                  <div className="space-y-6">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Email</label>
-                      <input required type="email" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} placeholder="employee@mineazy.com" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Full Name</label>
+                      <input required value={form.fullName} onChange={(e) => setForm({...form, fullName: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
                     </div>
-                    <div className="bg-green-50/50 p-3 rounded-lg border border-green-100/50">
-                      <p className="text-[9px] font-black text-green-700 uppercase tracking-widest flex items-center gap-2 mb-2">
-                        <ShieldCheck size={12} /> Account Provisioning
-                      </p>
+
+                    {!editingEmp && (
+                      <div className="space-y-6">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Email Address</label>
+                          <input required type="email" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} placeholder="employee@mineazy.com" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                        </div>
+                        <div className="bg-green-50/50 p-4 rounded-xl border border-green-100/50">
+                          <p className="text-[9px] font-black text-green-700 uppercase tracking-widest flex items-center gap-2 mb-3">
+                            <ShieldCheck size={12} /> Account Provisioning
+                          </p>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-black text-green-600/60 uppercase tracking-widest">Initial Access Password</label>
+                            <input 
+                              required 
+                              type="text"
+                              value={form.password} 
+                              onChange={(e) => setForm({...form, password: e.target.value})} 
+                              className="w-full bg-white border border-green-200 rounded p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-mine-green" 
+                            />
+                            <p className="text-[8px] text-green-600/40 italic mt-1">New personnel will use this to sign in to their node.</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <label className="text-[10px] font-black text-green-600/60 uppercase tracking-widest">Initial Password</label>
-                        <input 
-                          required 
-                          type="text"
-                          value={form.password} 
-                          onChange={(e) => setForm({...form, password: e.target.value})} 
-                          className="w-full bg-white border border-green-200 rounded p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-mine-green" 
-                        />
-                        <p className="text-[8px] text-green-600/40 italic">New personnel will use this to sign in to their node.</p>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Department</label>
+                        <input value={form.department} onChange={(e) => setForm({...form, department: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Job Title</label>
+                        <input value={form.jobTitle} onChange={(e) => setForm({...form, jobTitle: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
                       </div>
                     </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Branch Location</label>
+                      <input value={form.branch} onChange={(e) => setForm({...form, branch: e.target.value})} placeholder="e.g. Harare North, Bulawayo Hub" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                    </div>
                   </div>
-                )}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Department</label>
-                    <input value={form.department} onChange={(e) => setForm({...form, department: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Job Title</label>
-                    <input value={form.jobTitle} onChange={(e) => setForm({...form, jobTitle: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+
+                  {/* Right Column: Financial & Administrative */}
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Base Salary</label>
+                        <input type="number" required value={form.baseSalary} onChange={(e) => setForm({...form, baseSalary: Number(e.target.value)})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-mono" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Currency</label>
+                        <select value={form.currency} onChange={(e) => setForm({...form, currency: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
+                          <option value="USD">USD</option>
+                          <option value="ZWG">ZWG</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {isSuperAdmin && (
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Assign Entity (Subsidiary)</label>
+                        <select 
+                          value={form.subsidiaryId} 
+                          onChange={(e) => setForm({...form, subsidiaryId: e.target.value})} 
+                          className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold"
+                        >
+                          <option value="">Global/Holding</option>
+                          {subsidiaries.map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">System Role</label>
+                        <select 
+                          value={form.role} 
+                          onChange={(e) => setForm({...form, role: e.target.value})} 
+                          disabled={!isAdmin}
+                          className={`w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold ${!isAdmin ? 'opacity-50 cursor-not-allowed text-gray-400' : ''}`}
+                        >
+                          <option value="employee">Staff (General Access)</option>
+                          <option value="contractor">Contractor (Limited Access)</option>
+                          <option value="management">Management (Special Access)</option>
+                          <option value="admin">Site Admin (Privileged Access)</option>
+                          {isSuperAdmin && (
+                            <option value="superadmin">Super Admin (Root Access)</option>
+                          )}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Operational Status</label>
+                        <select value={form.status} onChange={(e) => setForm({...form, status: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
+                          <option value="active">Active</option>
+                          <option value="suspended">Suspended</option>
+                          <option value="terminated">Terminated</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Annual Leave Caps</label>
+                        <input 
+                          type="number" 
+                          value={form.annualLeaveBalance} 
+                          onChange={(e) => setForm({...form, annualLeaveBalance: e.target.value})} 
+                          className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payroll Run Group</label>
+                        <select value={form.payrollGroup} onChange={(e) => setForm({...form, payrollGroup: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
+                          <option value="General">General Staff Payroll</option>
+                          <option value="Management">Management Payroll</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <button type="submit" disabled={processing} className="btn btn-primary w-full py-4 flex items-center justify-center gap-2 !mt-1">
+                      {processing ? <RefreshCw className="animate-spin text-white" size={18} /> : <ShieldCheck size={18} />}
+                      {editingEmp ? 'Save Changes' : 'Complete Recruitment'}
+                    </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Base Salary</label>
-                    <input type="number" required value={form.baseSalary} onChange={(e) => setForm({...form, baseSalary: Number(e.target.value)})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-mono" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Currency</label>
-                    <select value={form.currency} onChange={(e) => setForm({...form, currency: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
-                      <option value="USD">USD</option>
-                      <option value="ZWG">ZWG</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Branch</label>
-                  <input value={form.branch} onChange={(e) => setForm({...form, branch: e.target.value})} placeholder="e.g. Harare North, Bulawayo Hub" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
-                </div>
-                {isSuperAdmin && (
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Assign Entity (Subsidiary)</label>
-                    <select 
-                      value={form.subsidiaryId} 
-                      onChange={(e) => setForm({...form, subsidiaryId: e.target.value})} 
-                      className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold"
-                    >
-                      <option value="">Global/Holding</option>
-                      {subsidiaries.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Role</label>
-                    <select 
-                      value={form.role} 
-                      onChange={(e) => setForm({...form, role: e.target.value})} 
-                      disabled={!isAdmin}
-                      className={`w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold ${!isAdmin ? 'opacity-50 cursor-not-allowed text-gray-400' : ''}`}
-                    >
-                      <option value="employee">Staff (General Access)</option>
-                      <option value="contractor">Contractor (Limited Access)</option>
-                      <option value="management">Management (Special Access)</option>
-                      <option value="admin">Site Admin (Privileged Access)</option>
-                      {isSuperAdmin && (
-                        <option value="superadmin">Super Admin (Root Access)</option>
-                      )}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Operational Status</label>
-                    <select value={form.status} onChange={(e) => setForm({...form, status: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
-                      <option value="active">Active</option>
-                      <option value="suspended">Suspended</option>
-                      <option value="terminated">Terminated</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Annual Leave Caps</label>
-                    <input 
-                      type="number" 
-                      value={form.annualLeaveBalance} 
-                      onChange={(e) => setForm({...form, annualLeaveBalance: e.target.value})} 
-                      className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold" 
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payroll Run Group</label>
-                  <select value={form.payrollGroup} onChange={(e) => setForm({...form, payrollGroup: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
-                    <option value="General">General Staff Payroll</option>
-                    <option value="Management">Management Payroll</option>
-                  </select>
-                </div>
-                <button type="submit" disabled={processing} className="btn btn-primary w-full py-4 flex items-center justify-center gap-2 mt-2">
-                  {processing ? <RefreshCw className="animate-spin text-white" size={18} /> : <ShieldCheck size={18} />}
-                  {editingEmp ? 'Save Changes' : 'Save New Employee'}
-                </button>
               </form>
             </motion.div>
           </div>
@@ -2259,59 +2298,67 @@ const EmployeeManagement: React.FC = () => {
                             <button onClick={() => setIsRecordingReview(true)} className="btn btn-outline text-xs !px-10">Conduct First Review</button>
                           </div>
                         ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {reviews.map((rev) => (
-                              <div key={rev.id} className="bg-white border rounded-3xl p-8 hover:shadow-xl transition-all group border-gray-100 relative overflow-hidden flex flex-col">
-                                <div className="absolute top-0 right-0 w-24 h-24 bg-gray-50 -mr-12 -mt-12 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
-                                <div className="flex justify-between items-start mb-8 relative z-10">
-                                  <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center group-hover:bg-mine-green group-hover:text-white transition-colors border border-gray-100">
-                                      <Calendar size={22} />
-                                    </div>
-                                    <div>
-                                      <p className="text-base font-black text-gray-900 italic serif">{new Date(rev.reviewDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</p>
-                                      <div className="flex items-center gap-1 mt-1">
-                                         {[...Array(5)].map((_, i) => (
-                                           <div key={i} className={`w-2 h-2 rounded-full ${i < rev.overallRating ? 'bg-mine-gold' : 'bg-gray-100'}`}></div>
-                                         ))}
-                                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{rev.overallRating}.0 / 5.0</p>
+                          <div className="space-y-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                              {reviews.slice((reviewsPage - 1) * PAGE_SIZE, reviewsPage * PAGE_SIZE).map((rev) => (
+                                <div key={rev.id} className="bg-white border rounded-3xl p-8 hover:shadow-xl transition-all group border-gray-100 relative overflow-hidden flex flex-col">
+                                  <div className="absolute top-0 right-0 w-24 h-24 bg-gray-50 -mr-12 -mt-12 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
+                                  <div className="flex justify-between items-start mb-8 relative z-10">
+                                    <div className="flex items-center gap-4">
+                                      <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center group-hover:bg-mine-green group-hover:text-white transition-colors border border-gray-100">
+                                        <Calendar size={22} />
+                                      </div>
+                                      <div>
+                                        <p className="text-base font-black text-gray-900 italic serif">{new Date(rev.reviewDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                                        <div className="flex items-center gap-1 mt-1">
+                                           {[...Array(5)].map((_, i) => (
+                                             <div key={i} className={`w-2 h-2 rounded-full ${i < rev.overallRating ? 'bg-mine-gold' : 'bg-gray-100'}`}></div>
+                                           ))}
+                                           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">{rev.overallRating}.0 / 5.0</p>
+                                        </div>
                                       </div>
                                     </div>
+                                    <div className="flex flex-col items-end gap-2">
+                                      <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
+                                        rev.status === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 
+                                        rev.status === 'conducted' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-orange-50 text-orange-700 border-orange-100'
+                                      }`}>
+                                        {rev.status}
+                                      </span>
+                                      {rev.status === 'completed' && (
+                                        <button 
+                                          onClick={() => downloadReviewPDF(rev)}
+                                          className="flex items-center gap-1 text-[10px] font-black text-mine-green uppercase tracking-widest hover:underline"
+                                        >
+                                          <FileDown size={12} /> Audit PDF
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="flex flex-col items-end gap-2">
-                                    <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border transition-all ${
-                                      rev.status === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 
-                                      rev.status === 'conducted' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-orange-50 text-orange-700 border-orange-100'
-                                    }`}>
-                                      {rev.status}
-                                    </span>
-                                    {rev.status === 'completed' && (
-                                      <button 
-                                        onClick={() => downloadReviewPDF(rev)}
-                                        className="flex items-center gap-1 text-[10px] font-black text-mine-green uppercase tracking-widest hover:underline"
-                                      >
-                                        <FileDown size={12} /> Audit PDF
-                                      </button>
+                                  
+                                  <div className="space-y-6 flex-1 relative z-10">
+                                    <div>
+                                      <p className="text-[9px] font-black text-gray-400 uppercase tracking-[3px] mb-2 flex items-center gap-1.5"><MessageSquare size={10} className="text-mine-green" /> Feedback Log</p>
+                                      <p className="text-xs text-gray-600 leading-relaxed font-medium bg-gray-50/50 p-4 rounded-xl italic">{rev.feedback || 'No transcript record detected.'}</p>
+                                    </div>
+                                    {rev.goals && (
+                                      <div className="bg-mine-green/5 p-5 rounded-2xl border border-mine-green/10">
+                                        <p className="text-[9px] font-black text-mine-green uppercase tracking-[3px] mb-2 flex items-center gap-1.5">
+                                          <Target size={12} /> Strategic Objectives
+                                        </p>
+                                        <p className="text-xs text-slate-800 font-bold leading-relaxed">{rev.goals}</p>
+                                      </div>
                                     )}
                                   </div>
                                 </div>
-                                
-                                <div className="space-y-6 flex-1 relative z-10">
-                                  <div>
-                                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-[3px] mb-2 flex items-center gap-1.5"><MessageSquare size={10} className="text-mine-green" /> Feedback Log</p>
-                                    <p className="text-xs text-gray-600 leading-relaxed font-medium bg-gray-50/50 p-4 rounded-xl italic">{rev.feedback || 'No transcript record detected.'}</p>
-                                  </div>
-                                  {rev.goals && (
-                                    <div className="bg-mine-green/5 p-5 rounded-2xl border border-mine-green/10">
-                                      <p className="text-[9px] font-black text-mine-green uppercase tracking-[3px] mb-2 flex items-center gap-1.5">
-                                        <Target size={12} /> Strategic Objectives
-                                      </p>
-                                      <p className="text-xs text-slate-800 font-bold leading-relaxed">{rev.goals}</p>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
+                              ))}
+                            </div>
+                            <Pagination 
+                              currentPage={reviewsPage}
+                              totalItems={reviews.length}
+                              pageSize={PAGE_SIZE}
+                              onPageChange={setReviewsPage}
+                            />
                           </div>
                         )}
                       </div>

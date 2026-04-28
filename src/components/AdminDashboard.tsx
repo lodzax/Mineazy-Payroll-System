@@ -37,22 +37,39 @@ const Pagination: React.FC<{
   if (totalPages <= 1) return null;
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-t border-app-bg bg-gray-50/50">
-      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-        Page {currentPage} of {totalPages}
-      </span>
-      <div className="flex gap-1.5">
+    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+          Record {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, totalItems)} of {totalItems}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
         <button
           disabled={currentPage === 1}
           onClick={() => onPageChange(currentPage - 1)}
-          className="p-1 rounded bg-white border border-gray-200 text-gray-500 disabled:opacity-50 hover:bg-gray-100 transition-colors"
+          className="p-1.5 rounded bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
         >
           <ChevronLeft size={14} />
         </button>
+        <div className="flex gap-1">
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+            <button
+              key={p}
+              onClick={() => onPageChange(p)}
+              className={`w-7 h-7 rounded text-[9px] font-bold transition-all ${currentPage === p ? 'bg-mine-green text-white shadow-lg' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-green hover:text-mine-green'}`}
+            >
+              {p}
+            </button>
+          )).filter((_, idx) => {
+            if (totalPages <= 5) return true;
+            if (idx === 0 || idx === totalPages - 1) return true;
+            return Math.abs(idx - (currentPage - 1)) <= 1;
+          })}
+        </div>
         <button
           disabled={currentPage === totalPages}
           onClick={() => onPageChange(currentPage + 1)}
-          className="p-1 rounded bg-white border border-gray-200 text-gray-500 disabled:opacity-50 hover:bg-gray-100 transition-colors"
+          className="p-1.5 rounded bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
         >
           <ChevronRight size={14} />
         </button>
@@ -88,6 +105,12 @@ const AdminDashboard: React.FC = () => {
   const [timesheetPage, setTimesheetPage] = useState(1);
   const [leavePage, setLeavePage] = useState(1);
   const PAGE_SIZE = 5;
+
+  useEffect(() => {
+    setLoanPage(1);
+    setTimesheetPage(1);
+    setLeavePage(1);
+  }, [globalSearch, subFilter, payrollGroupFilter]);
 
   const fetchData = async () => {
     setLoading(true);
