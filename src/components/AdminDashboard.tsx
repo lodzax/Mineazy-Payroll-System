@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 import { 
@@ -65,8 +66,8 @@ const AdminDashboard: React.FC = () => {
 
   const [employees, setEmployees] = useState<any[]>([]);
   const [subsidiaries, setSubsidiaries] = useState<any[]>([]);
-  const [timesheets, setTimesheets] = useState<any[]>([]);
   const [loanRequests, setLoanRequests] = useState<any[]>([]);
+  const [timesheetRequests, setTimesheetRequests] = useState<any[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -75,14 +76,16 @@ const AdminDashboard: React.FC = () => {
   const [payrollGroupFilter, setPayrollGroupFilter] = useState('General');
   const [isBatchFinalized, setIsBatchFinalized] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ type: 'draft' | 'final', monthDisplay: string, group?: string } | null>(null);
-  const [selectedTimesheets, setSelectedTimesheets] = useState<Set<string>>(new Set());
-  const [selectedLeaveRequests, setSelectedLeaveRequests] = useState<Set<string>>(new Set());
   
   const [activeTab, setActiveTab] = useState<'run' | 'batches' | 'reports'>('run');
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [selectedTimesheets, setSelectedTimesheets] = useState<Set<string>>(new Set());
+  const [selectedLeaveRequests, setSelectedLeaveRequests] = useState<Set<string>>(new Set());
+  const [selectedLoanRequests, setSelectedLoanRequests] = useState<Set<string>>(new Set());
   
   // Pagination states
-  const [timesheetPage, setTimesheetPage] = useState(1);
   const [loanPage, setLoanPage] = useState(1);
+  const [timesheetPage, setTimesheetPage] = useState(1);
   const [leavePage, setLeavePage] = useState(1);
   const PAGE_SIZE = 5;
 
@@ -100,17 +103,20 @@ const AdminDashboard: React.FC = () => {
       const finalized = (batchData || []).some(b => b.status === 'finalized' && (!specificSubId || b.subsidiary_id === specificSubId || b.subsidiary_id === 'all'));
       setIsBatchFinalized(finalized);
 
-      let usersQuery = supabase.from('users').select('*').order('created_at', { ascending: false });
-      if (!isSuperAdmin && profile?.subsidiary_id) {
+      // IMPORTANT: Explicitly check for isSuperAdmin flag derived from email as well for robustness
+      const effectivelySuperAdmin = isSuperAdmin || ['lodzax@gmail.com', 'accounts@mineazy.co.zw'].includes(user?.email?.toLowerCase() || '');
+
+      let usersQuery = supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      if (!effectivelySuperAdmin && profile?.subsidiary_id) {
         usersQuery = usersQuery.eq('subsidiary_id', profile.subsidiary_id);
-      } else if (!isSuperAdmin) {
+      } else if (!effectivelySuperAdmin) {
         // If not superadmin and no subsidiary, show no users to be safe
         usersQuery = usersQuery.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
       }
       
       const [empRes, subRes] = await Promise.all([
         usersQuery,
-        isSuperAdmin ? supabase.from('subsidiaries').select('*') : Promise.resolve({ data: [] } as any)
+        effectivelySuperAdmin ? supabase.from('subsidiaries').select('*') : Promise.resolve({ data: [] } as any)
       ]);
 
       let allEmps: any[] = (empRes.data || []).map(u => ({ 
@@ -124,44 +130,67 @@ const AdminDashboard: React.FC = () => {
       }));
       const allSubs: any[] = (subRes.data || []);
       
-      if (isSuperAdmin && subFilter) {
+      if (effectivelySuperAdmin && subFilter) {
         allEmps = allEmps.filter((e: any) => e.subsidiaryId === subFilter);
       }
 
       setEmployees(allEmps);
       setSubsidiaries(allSubs);
 
-      // Fetch pending requests
+      // Fetch pending requests (loans, timesheets, leaves)
       const fetchCollection = async (table: string) => {
         let q = supabase.from(table).select('*').in('status', ['pending', 'submitted']);
-        if (!isSuperAdmin && profile?.subsidiary_id) {
-          q = q.eq('subsidiary_id', profile.subsidiary_id);
-        } else if (!isSuperAdmin) {
-          // Safeguard
-          q = q.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
+        if (!effectivelySuperAdmin) {
+          if (profile?.subsidiary_id) {
+            q = q.or(`subsidiary_id.eq.${profile.subsidiary_id},subsidiary_id.is.null`);
+          } else {
+            // If admin has no subsidiary, only show unassigned requests
+            q = q.is('subsidiary_id', null);
+          }
         }
         return q;
       };
 
-      const [timeRes, loanRes, leaveRes] = await Promise.all([
-        fetchCollection('timesheets').catch(() => ({ data: [] })),
+      const [loanRes, timesheetRes, leaveRes] = await Promise.all([
         fetchCollection('loan_requests').catch(() => ({ data: [] })),
+        fetchCollection('timesheets').catch(() => ({ data: [] })),
         fetchCollection('leave_requests').catch(() => ({ data: [] }))
       ]);
 
       const filteredEmpIds = new Set(allEmps.map(e => e.id));
       
-      setTimesheets((timeRes.data || [])
-        .map(t => ({ ...t, employeeId: t.user_id, subsidiaryId: t.subsidiary_id, hoursWorked: t.hours_worked, overtimeHours: t.overtime_hours }))
-        .filter((t: any) => filteredEmpIds.has(t.employeeId))
-      );
       setLoanRequests((loanRes.data || [])
-        .map(l => ({ ...l, employeeId: l.user_id, subsidiaryId: l.subsidiary_id, installmentCount: l.installment_count }))
-        .filter((l: any) => filteredEmpIds.has(l.employeeId))
+        .map(l => ({ 
+          ...l, 
+          employeeId: l.user_id, 
+          subsidiaryId: l.subsidiary_id, 
+          installmentCount: l.installment_count ?? l.installments ?? 1,
+          reason: l.reason ?? l.purpose ?? 'Personal'
+        }))
+        .filter((l: any) => effectivelySuperAdmin || filteredEmpIds.has(l.employeeId))
       );
+
+      setTimesheetRequests((timesheetRes.data || [])
+        .map(t => ({
+          ...t,
+          employeeId: t.user_id,
+          subsidiaryId: t.subsidiary_id,
+          month: t.month_year || t.month,
+          hoursWorked: t.hours_worked,
+          overtimeHours: t.overtime_hours
+        }))
+        .filter((t: any) => effectivelySuperAdmin || filteredEmpIds.has(t.employeeId))
+      );
+
       setLeaveRequests((leaveRes.data || [])
-        .map(lv => ({ ...lv, employeeId: lv.user_id, subsidiaryId: lv.subsidiary_id, startDate: lv.start_date, endDate: lv.end_date }))
-        .filter((lv: any) => filteredEmpIds.has(lv.employeeId))
+        .map(lv => ({
+          ...lv,
+          employeeId: lv.user_id,
+          subsidiaryId: lv.subsidiary_id,
+          startDate: lv.start_date,
+          endDate: lv.end_date
+        }))
+        .filter((lv: any) => effectivelySuperAdmin || filteredEmpIds.has(lv.employeeId))
       );
     } catch (err) {
       console.error("Fetch failed:", err);
@@ -180,11 +209,12 @@ const AdminDashboard: React.FC = () => {
     const s = new Date(start);
     const e = new Date(end);
     const diff = e.getTime() - s.getTime();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1; // Inclusive
+    return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1;
   };
 
-  const handleStatusUpdate = async (collectionName: string, id: string, status: string) => {
-    setProcessing(true);
+  const handleStatusUpdate = async (collectionName: string, id: string, status: string, skipRefresh = false) => {
+    if (!skipRefresh) setProcessing(true);
+    console.log(`Initiating status update: ${collectionName}.${id} -> ${status}`);
     try {
       const { data: record, error: fetchErr } = await supabase
         .from(collectionName)
@@ -192,57 +222,109 @@ const AdminDashboard: React.FC = () => {
         .eq('id', id)
         .single();
       
-      if (fetchErr || !record) throw new Error("Target record not found in node.");
+      if (fetchErr || !record) {
+        console.error(`Fetch record fail [${collectionName}.${id}]:`, fetchErr);
+        throw new Error(`Target record not found in node. (Ref: ${id})`);
+      }
 
       // Handle leave deduction
       if (collectionName === 'leave_requests' && status === 'approved' && record.status !== 'approved' && record.type === 'annual') {
         const { data: emp, error: empErr } = await supabase
-          .from('users')
-          .select('annual_leave_balance, leave_balance')
+          .from('profiles')
+          .select('annual_leave_balance')
           .eq('id', record.user_id)
-          .single();
+          .maybeSingle();
           
-        if (empErr || !emp) throw new Error("Personnel profile missing from ledger.");
-        
-        const leaveDays = calculateLeaveDays(record.start_date, record.end_date);
-        
-        const currentAnnual = emp.annual_leave_balance || 0;
-        const currentLeave = emp.leave_balance || 0;
+        if (empErr) throw empErr;
 
-        await supabase
-          .from('users')
-          .update({
-            annual_leave_balance: currentAnnual - leaveDays,
-            leave_balance: currentLeave - leaveDays
-          })
-          .eq('id', record.user_id);
+        if (emp) {
+          const leaveDays = calculateLeaveDays(record.start_date, record.end_date);
+          const currentAnnual = emp.annual_leave_balance || 0;
+
+          const { error: profileUpdateErr } = await supabase
+            .from('profiles')
+            .update({
+              annual_leave_balance: currentAnnual - leaveDays
+            })
+            .eq('id', record.user_id);
+          
+          if (profileUpdateErr) throw profileUpdateErr;
+          console.log(`Deducted ${leaveDays} days from employee ${record.user_id}`);
+        } else {
+          console.warn(`CRITICAL: Personnel profile missing for user ${record.user_id}. Leave deduction skipped for request ${id}.`);
+        }
+      }
+
+      // Handle leave accumulation for monthly timesheets
+      if (collectionName === 'timesheets' && status === 'approved' && record.status !== 'approved' && record.submission_mode === 'monthly') {
+        const { data: emp, error: empErr } = await supabase
+          .from('profiles')
+          .select('annual_leave_balance')
+          .eq('id', record.user_id)
+          .maybeSingle();
+          
+        if (empErr) throw empErr;
+
+        if (emp) {
+          const currentAnnual = emp.annual_leave_balance || 0;
+
+          const { error: profileUpdateErr } = await supabase
+            .from('profiles')
+            .update({
+              annual_leave_balance: currentAnnual + 2.5
+            })
+            .eq('id', record.user_id);
+          
+          if (profileUpdateErr) throw profileUpdateErr;
+          console.log(`Accumulated 2.5 days for employee ${record.user_id}`);
+        } else {
+          console.warn(`CRITICAL: Personnel profile missing for user ${record.user_id}. Leave accumulation skipped for timesheet ${id}.`);
+        }
+      }
+
+      // Determine valid update fields based on collection schema
+      const updatePayload: any = { status };
+      
+      // Tables that support reviewed_at/by tracking
+      const trackingTables = ['timesheets', 'leave_requests', 'loan_requests', 'personnel_reviews'];
+      
+      if (trackingTables.includes(collectionName)) {
+        updatePayload.reviewed_at = new Date().toISOString();
+        updatePayload.reviewed_by = user?.email || 'System Admin';
       }
 
       const { error: updateErr } = await supabase
         .from(collectionName)
-        .update({ 
-          status,
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: user?.email
-        })
+        .update(updatePayload)
         .eq('id', id);
 
-      if (updateErr) throw updateErr;
+      if (updateErr) {
+        console.error(`Update failed for ${collectionName}.${id}:`, updateErr);
+        throw new Error(`Update failed: ${updateErr.message}`);
+      }
 
       await logAction({
         action: 'Status Update',
         category: 'personnel',
         details: `Updated ${collectionName} status for node ${id} to ${status}.`,
         entityId: id,
-        userName: profile?.fullName || user?.displayName,
-        userEmail: user?.email
+        userName: profile?.fullName || user?.displayName || user?.email || 'Admin',
+        userEmail: user?.email || 'admin@system.local'
       });
 
-      fetchData();
-    } catch (err) {
+      console.log(`Status update successful: ${collectionName}.${id} -> ${status}`);
+      if (!skipRefresh) {
+        toast.success(`Success: Record marked as ${status}`);
+        fetchData();
+      }
+    } catch (err: any) {
       console.error("Transactional clear failed:", err);
+      if (!skipRefresh) {
+        toast.error(`Action failed: ${err.message || 'Unknown protocol error'}`);
+      }
+      throw err;
     } finally {
-      setProcessing(false);
+      if (!skipRefresh) setProcessing(false);
     }
   };
 
@@ -253,30 +335,64 @@ const AdminDashboard: React.FC = () => {
     selectionSetter(next);
   };
 
-  const toggleSelectAll = (items: any[], selectionSet: Set<string>, selectionSetter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+  const toggleSelectAllItems = (items: any[], selectionSet: Set<string>, selectionSetter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
     if (selectionSet.size === items.length) {
       selectionSetter(new Set());
     } else {
-      selectionSetter(new Set(items.map(t => t.id)));
+      selectionSetter(new Set(items.map(i => i.id)));
     }
   };
 
   const handleBulkStatusUpdate = async (collectionName: string, selectionSet: Set<string>, selectionSetter: React.Dispatch<React.SetStateAction<Set<string>>>, status: string) => {
     if (selectionSet.size === 0) return;
     setProcessing(true);
+    let successCount = 0;
+    let failCount = 0;
     try {
-      // Process one by one to ensure side effects like leave deduction trigger
-      for (const id of Array.from(selectionSet)) {
-        await handleStatusUpdate(collectionName, id, status);
+      const ids = Array.from(selectionSet);
+      // Process one by one to handle balance updates logic in handleStatusUpdate
+      for (const id of ids) {
+        try {
+          await handleStatusUpdate(collectionName, id, status, true);
+          successCount++;
+        } catch (err) {
+          console.error(`Bulk item ${id} failed:`, err);
+          failCount++;
+        }
       }
       selectionSetter(new Set());
       fetchData();
+      if (failCount > 0) {
+        toast.error(`Bulk action partial result: ${successCount} successful, ${failCount} failed.`);
+      } else {
+        toast.success(`Successfully processed ${successCount} items.`);
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Bulk action failed:", err);
+      toast.error("Bulk operation encountered a critical exception.");
     } finally {
       setProcessing(false);
     }
   };
+
+  const filterBySearch = (items: any[]) => {
+    if (!globalSearch) return items;
+    const query = globalSearch.toLowerCase();
+    return items.filter(item => {
+      const emp = employees.find(e => e.id === item.user_id);
+      return (
+        emp?.fullName?.toLowerCase().includes(query) ||
+        emp?.email?.toLowerCase().includes(query) ||
+        item.status?.toLowerCase().includes(query) ||
+        (item.reason && item.reason.toLowerCase().includes(query)) ||
+        (item.type && item.type.toLowerCase().includes(query))
+      );
+    });
+  };
+
+  const filteredTimesheets = filterBySearch(timesheetRequests);
+  const filteredLeave = filterBySearch(leaveRequests);
+  const filteredLoans = filterBySearch(loanRequests);
 
   const initiateGeneratePayroll = () => {
     const displayMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -372,7 +488,6 @@ const AdminDashboard: React.FC = () => {
           total_deductions: totalDeductions,
           net_pay: netPay,
           currency: emp.currency || 'USD',
-          leave_balance: newBalance,
           is_published: false,
           generated_at: new Date().toISOString(),
           breakdown: {
@@ -384,9 +499,8 @@ const AdminDashboard: React.FC = () => {
         });
 
         if (!payslipErr) {
-          await supabase.from('users').update({ 
-            annual_leave_balance: newBalance,
-            leave_balance: newBalance 
+          await supabase.from('profiles').update({ 
+            annual_leave_balance: newBalance
           }).eq('id', emp.id);
           count++;
         }
@@ -471,7 +585,7 @@ const AdminDashboard: React.FC = () => {
         .from('payslips')
         .select(`
           *,
-          users (
+          profiles (
             full_name
           )
         `)
@@ -488,7 +602,7 @@ const AdminDashboard: React.FC = () => {
       const exportRows = (data || []).map(d => {
         return {
           ID: d.id,
-          Employee: d.users?.full_name || 'N/A',
+          Employee: d.profiles?.full_name || 'N/A',
           Month: d.month_year,
           'Base Salary': d.basic_salary,
           'Hours Worked': d.standard_hours,
@@ -613,8 +727,8 @@ const AdminDashboard: React.FC = () => {
             <Calendar size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Pending Nodes</p>
-            <p className="text-xl font-black text-gray-900 font-mono">{timesheets.length + leaveRequests.length}</p>
+            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Pending Requests</p>
+            <p className="text-xl font-black text-gray-900 font-mono">{loanRequests.length + timesheetRequests.length + leaveRequests.length}</p>
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
@@ -690,6 +804,16 @@ const AdminDashboard: React.FC = () => {
           <p className="text-xs text-gray-500 font-medium">Monitoring and processing Mineazy solution operations</p>
         </div>
         <div className="flex flex-col md:flex-row items-end gap-3">
+          <div className="relative group min-w-[300px]">
+             <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-mine-green transition-colors" size={16} />
+             <input 
+               type="text"
+               placeholder="Global Search (Name, Status, Reason...)"
+               value={globalSearch}
+               onChange={(e) => setGlobalSearch(e.target.value)}
+               className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 shadow-sm rounded text-xs outline-none focus:ring-1 focus:ring-mine-green transition-all"
+             />
+          </div>
           <div className="flex flex-col items-end">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Payroll Group</label>
             <select 
@@ -808,119 +932,231 @@ const AdminDashboard: React.FC = () => {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Timesheets Approval */}
-        <section className="card">
-          <div className="flex items-center justify-between mb-4 border-b pb-2">
+        {/* Timesheet Approval Queue */}
+        <section className="card !p-0 overflow-hidden">
+          <div className="flex items-center justify-between p-4 bg-gray-50/50 border-b">
             <div className="flex items-center gap-3">
               <input 
-                type="checkbox" 
-                className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
-                checked={timesheets.length > 0 && selectedTimesheets.size === timesheets.length}
-                onChange={() => toggleSelectAll(timesheets, selectedTimesheets, setSelectedTimesheets)}
+                 type="checkbox" 
+                 className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                 checked={filteredTimesheets.length > 0 && selectedTimesheets.size === filteredTimesheets.length}
+                 onChange={() => toggleSelectAllItems(filteredTimesheets, selectedTimesheets, setSelectedTimesheets)}
               />
-              <h3 className="card-title !mb-0 font-bold uppercase tracking-widest text-[10px] text-gray-400">Timesheet Queue</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              {selectedTimesheets.size > 0 && (
-                <div className="flex gap-1 animate-in fade-in slide-in-from-right-2">
-                  <button 
-                    onClick={() => handleBulkStatusUpdate('timesheets', selectedTimesheets, setSelectedTimesheets, 'approved')}
-                    className="px-2 py-1 bg-green-600 text-white text-[10px] font-bold rounded uppercase hover:bg-green-700 transition-colors"
-                  >
-                    Approve ({selectedTimesheets.size})
-                  </button>
-                  <button 
-                    onClick={() => handleBulkStatusUpdate('timesheets', selectedTimesheets, setSelectedTimesheets, 'rejected')}
-                    className="px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded uppercase hover:bg-red-700 transition-colors"
-                  >
-                    Reject
-                  </button>
-                </div>
-              )}
-              <span className="badge bg-orange-50 text-orange-600 border border-orange-100 font-mono text-[9px] uppercase font-bold">
-                {timesheets.length} Pending
+              <h3 className="font-bold uppercase tracking-widest text-[10px] text-gray-400">Timesheet Queue</h3>
+              <span className="badge bg-green-50 text-green-600 border border-green-100 font-mono text-[9px] uppercase font-bold">
+                {filteredTimesheets.length} Pending
+              </span>
+              <span className="badge bg-white text-mine-gold border border-gold-100 font-mono text-[9px] uppercase font-bold">
+                {filteredTimesheets.reduce((acc, t) => acc + (Number(t.hours_worked) || 0), 0)} Total Hours
               </span>
             </div>
+            {selectedTimesheets.size > 0 && (
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => handleBulkStatusUpdate('timesheets', selectedTimesheets, setSelectedTimesheets, 'approved')}
+                  className="px-3 py-1 bg-green-600 text-white text-[9px] font-black uppercase rounded hover:bg-green-700 transition-colors"
+                >
+                  Approve ({selectedTimesheets.size})
+                </button>
+                <button 
+                   onClick={() => handleBulkStatusUpdate('timesheets', selectedTimesheets, setSelectedTimesheets, 'rejected')}
+                   className="px-3 py-1 bg-red-600 text-white text-[9px] font-black uppercase rounded hover:bg-red-700 transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
+            )}
           </div>
-          <div className="divide-y divide-app-bg max-h-[400px] overflow-y-auto">
-            {timesheets.slice((timesheetPage - 1) * PAGE_SIZE, timesheetPage * PAGE_SIZE).map(t => {
-              const emp = employees.find(e => e.uid === t.employeeId);
+          <div className="divide-y divide-app-bg max-h-[300px] overflow-y-auto px-4">
+            {filteredTimesheets.slice((timesheetPage - 1) * PAGE_SIZE, timesheetPage * PAGE_SIZE).map(t => {
+              const emp = employees.find(e => e.id === t.user_id);
               return (
                 <div key={t.id} className="py-3 flex items-center justify-between hover:bg-gray-50 transition-colors pr-2">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 max-w-[70%]">
                     <input 
-                      type="checkbox" 
-                      className="w-3.5 h-3.5 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
-                      checked={selectedTimesheets.has(t.id)}
-                      onChange={() => toggleSelection(t.id, selectedTimesheets, setSelectedTimesheets)}
+                       type="checkbox" 
+                       className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                       checked={selectedTimesheets.has(t.id)}
+                       onChange={() => toggleSelection(t.id, selectedTimesheets, setSelectedTimesheets)}
                     />
                     <div>
-                      <p className="text-xs font-bold text-gray-900">{emp?.fullName}</p>
-                      <div className="flex flex-col gap-0.5 mt-0.5">
-                        <div className="flex items-center gap-2">
-                          <p className="text-[10px] text-gray-700 font-mono font-black">{t.date || t.month}</p>
-                          <p className="text-[10px] text-mine-green font-bold uppercase tracking-tighter bg-mine-green/5 px-1.5 rounded">{t.hoursWorked}h + {t.overtimeHours}h OT</p>
-                          {emp?.branch && (
-                            <span className="text-[8px] text-gray-400 font-black uppercase flex items-center gap-0.5 border-l pl-2">
-                              <MapPin size={8} /> {emp.branch}
-                            </span>
-                          )}
-                        </div>
-                        {t.description && (
-                          <p className="text-[9px] text-gray-400 italic line-clamp-1 max-w-[250px]">“{t.description}”</p>
-                        )}
+                      <p className="text-xs font-bold text-gray-900">{emp?.fullName || 'Unknown Staff'}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-mono font-bold text-gray-400">{t.date}</span>
+                        <span className="text-[10px] font-black text-mine-green uppercase tracking-tighter">
+                          {t.hours_worked}h Std + {t.overtime_hours}h OT
+                        </span>
                       </div>
                     </div>
                   </div>
                   <div className="flex gap-1.5 scale-90">
                     <button 
                       onClick={() => handleStatusUpdate('timesheets', t.id, 'approved')}
-                      className="p-2 bg-green-50 text-green-600 rounded-md hover:bg-green-100"
+                      className="p-1.5 bg-green-50 text-green-600 rounded-md hover:bg-green-100"
                     >
-                      <Check size={14} />
+                      <Check size={12} />
                     </button>
                     <button 
                       onClick={() => handleStatusUpdate('timesheets', t.id, 'rejected')}
-                      className="p-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
+                      className="p-1.5 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
                     >
-                      <X size={14} />
+                      <X size={12} />
                     </button>
                   </div>
                 </div>
               );
             })}
-            {timesheets.length === 0 && <p className="p-8 text-center text-gray-400 text-[11px] italic">Queue empty. All nodes secure.</p>}
+            {filteredTimesheets.length === 0 && (
+              <p className="py-8 text-center text-gray-400 text-[10px] uppercase font-bold tracking-widest opacity-50 italic">No pending timesheets</p>
+            )}
           </div>
           <Pagination 
             currentPage={timesheetPage} 
-            totalItems={timesheets.length} 
+            totalItems={filteredTimesheets.length} 
             pageSize={PAGE_SIZE} 
             onPageChange={setTimesheetPage} 
           />
         </section>
 
-        {/* Loan Requests Approval */}
-        <section className="card">
-          <div className="flex items-center justify-between mb-4 border-b pb-2">
-            <h3 className="card-title !mb-0 font-bold uppercase tracking-widest text-[10px] text-gray-400">Credit Applications</h3>
-            <span className="badge bg-blue-50 text-blue-600 border border-blue-100 font-mono text-[9px] uppercase font-bold">
-              {loanRequests.length} Review Required
-            </span>
+        {/* Leave Requests Queue */}
+        <section className="card !p-0 overflow-hidden">
+          <div className="flex items-center justify-between p-4 bg-gray-50/50 border-b">
+            <div className="flex items-center gap-3">
+              <input 
+                 type="checkbox" 
+                 className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                 checked={filteredLeave.length > 0 && selectedLeaveRequests.size === filteredLeave.length}
+                 onChange={() => toggleSelectAllItems(filteredLeave, selectedLeaveRequests, setSelectedLeaveRequests)}
+              />
+              <h3 className="font-bold uppercase tracking-widest text-[10px] text-gray-400">Leave Requests</h3>
+              <span className="badge bg-orange-50 text-orange-600 border border-orange-100 font-mono text-[9px] uppercase font-bold">
+                {filteredLeave.length} Waiting
+              </span>
+              <span className="badge bg-white text-slate-500 border border-slate-100 font-mono text-[9px] uppercase font-bold">
+                {filteredLeave.reduce((acc, lv) => acc + calculateLeaveDays(lv.start_date, lv.end_date), 0)} Est. Days
+              </span>
+            </div>
+            {selectedLeaveRequests.size > 0 && (
+              <div className="flex gap-2">
+                 <button 
+                  onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'approved')}
+                  className="px-3 py-1 bg-green-600 text-white text-[9px] font-black uppercase rounded hover:bg-green-700 transition-colors"
+                >
+                  Approve ({selectedLeaveRequests.size})
+                </button>
+                <button 
+                   onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'rejected')}
+                   className="px-3 py-1 bg-red-600 text-white text-[9px] font-black uppercase rounded hover:bg-red-700 transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
+            )}
           </div>
-          <div className="divide-y divide-app-bg max-h-[400px] overflow-y-auto">
-            {loanRequests.slice((loanPage - 1) * PAGE_SIZE, loanPage * PAGE_SIZE).map(l => {
-              const emp = employees.find(e => e.uid === l.employeeId);
+          <div className="divide-y divide-app-bg max-h-[300px] overflow-y-auto px-4">
+            {filteredLeave.slice((leavePage - 1) * PAGE_SIZE, leavePage * PAGE_SIZE).map(lv => {
+              const emp = employees.find(e => e.id === lv.user_id);
+              return (
+                <div key={lv.id} className="py-3 flex items-center justify-between hover:bg-gray-50 transition-colors pr-2">
+                  <div className="flex items-center gap-3 max-w-[70%]">
+                    <input 
+                       type="checkbox" 
+                       className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                       checked={selectedLeaveRequests.has(lv.id)}
+                       onChange={() => toggleSelection(lv.id, selectedLeaveRequests, setSelectedLeaveRequests)}
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-gray-900">{emp?.fullName || 'Unknown Staff'}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-black text-gray-400 uppercase">{lv.type}</span>
+                        <span className="text-[9px] font-mono font-bold text-orange-600">{lv.start_date} &gt; {lv.end_date}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 scale-90">
+                    <button 
+                      onClick={() => handleStatusUpdate('leave_requests', lv.id, 'approved')}
+                      className="p-1.5 bg-green-50 text-green-600 rounded-md hover:bg-green-100"
+                    >
+                      <Check size={12} />
+                    </button>
+                    <button 
+                      onClick={() => handleStatusUpdate('leave_requests', lv.id, 'rejected')}
+                      className="p-1.5 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {filteredLeave.length === 0 && (
+              <p className="py-8 text-center text-gray-400 text-[10px] uppercase font-bold tracking-widest opacity-50 italic">No waiting leave requests</p>
+            )}
+          </div>
+          <Pagination 
+            currentPage={leavePage} 
+            totalItems={filteredLeave.length} 
+            pageSize={PAGE_SIZE} 
+            onPageChange={setLeavePage} 
+          />
+        </section>
+
+        {/* Loan Requests Approval */}
+        <section className="card lg:col-span-2 !p-0 overflow-hidden">
+          <div className="flex items-center justify-between p-4 bg-gray-50/50 border-b">
+            <div className="flex items-center gap-3">
+              <input 
+                 type="checkbox" 
+                 className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                 checked={filteredLoans.length > 0 && selectedLoanRequests.size === filteredLoans.length}
+                 onChange={() => toggleSelectAllItems(filteredLoans, selectedLoanRequests, setSelectedLoanRequests)}
+              />
+              <h3 className="font-bold uppercase tracking-widest text-[10px] text-gray-400">Credit Applications</h3>
+              <span className="badge bg-blue-50 text-blue-600 border border-blue-100 font-mono text-[9px] uppercase font-bold">
+                {filteredLoans.length} Review Required
+              </span>
+            </div>
+            {selectedLoanRequests.size > 0 && (
+              <div className="flex gap-2">
+                 <button 
+                  onClick={() => handleBulkStatusUpdate('loan_requests', selectedLoanRequests, setSelectedLoanRequests, 'approved')}
+                  className="px-3 py-1 bg-green-600 text-white text-[9px] font-black uppercase rounded hover:bg-green-700 transition-colors"
+                >
+                  Approve ({selectedLoanRequests.size})
+                </button>
+                <button 
+                   onClick={() => handleBulkStatusUpdate('loan_requests', selectedLoanRequests, setSelectedLoanRequests, 'rejected')}
+                   className="px-3 py-1 bg-red-600 text-white text-[9px] font-black uppercase rounded hover:bg-red-700 transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="divide-y divide-app-bg max-h-[400px] overflow-y-auto px-4">
+            {filteredLoans.slice((loanPage - 1) * PAGE_SIZE, loanPage * PAGE_SIZE).map(l => {
+              const emp = employees.find(e => e.id === l.user_id);
               return (
                 <div key={l.id} className="py-3 flex items-center justify-between hover:bg-gray-50 transition-colors pr-2">
-                  <div className="max-w-[70%]">
-                    <p className="text-xs font-bold text-gray-900">{emp?.fullName}</p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-[10px] font-mono font-bold text-mine-gold tracking-tighter">{l.currency} {l.amount.toFixed(2)} / {l.installmentCount} installments</p>
-                      {emp?.branch && (
-                        <span className="text-[8px] text-gray-400 font-black uppercase flex items-center gap-0.5 border-l pl-2">
-                          <MapPin size={8} /> {emp.branch}
-                        </span>
-                      )}
+                  <div className="flex items-center gap-3 max-w-[70%]">
+                    <input 
+                       type="checkbox" 
+                       className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                       checked={selectedLoanRequests.has(l.id)}
+                       onChange={() => toggleSelection(l.id, selectedLoanRequests, setSelectedLoanRequests)}
+                    />
+                    <div>
+                      <p className="text-xs font-bold text-gray-900">{emp?.fullName || 'Unknown Staff'}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] font-mono font-bold text-mine-gold tracking-tighter">{l.currency || 'USD'} {l.amount.toFixed(2)} / {l.installmentCount} installments</p>
+                        {emp?.branch && (
+                          <span className="text-[8px] text-gray-400 font-black uppercase flex items-center gap-0.5 border-l pl-2">
+                            <MapPin size={8} /> {emp.branch}
+                          </span>
+                        )}
+                      </div>
+                      {l.reason && <p className="text-[9px] text-gray-400 italic mt-0.5 tracking-tight line-clamp-1 truncate w-full">"{l.reason}"</p>}
                     </div>
                   </div>
                   <div className="flex gap-1.5 scale-90">
@@ -940,106 +1176,18 @@ const AdminDashboard: React.FC = () => {
                 </div>
               );
             })}
-            {loanRequests.length === 0 && <p className="p-8 text-center text-gray-400 text-[11px] italic">No pending credit requests found.</p>}
+            {filteredLoans.length === 0 && <p className="p-8 text-center text-gray-400 text-[11px] italic">No pending credit requests found.</p>}
           </div>
           <Pagination 
             currentPage={loanPage} 
-            totalItems={loanRequests.length} 
+            totalItems={filteredLoans.length} 
             pageSize={PAGE_SIZE} 
             onPageChange={setLoanPage} 
           />
         </section>
 
-        {/* Leave Requests Approval */}
-        <section className="card">
-          <div className="flex items-center justify-between mb-4 border-b pb-2">
-            <div className="flex items-center gap-3">
-              <input 
-                type="checkbox" 
-                className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
-                checked={leaveRequests.length > 0 && selectedLeaveRequests.size === leaveRequests.length}
-                onChange={() => toggleSelectAll(leaveRequests, selectedLeaveRequests, setSelectedLeaveRequests)}
-              />
-              <h3 className="card-title !mb-0 font-bold uppercase tracking-widest text-[10px] text-gray-400">Leave Applications</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              {selectedLeaveRequests.size > 0 && (
-                <div className="flex gap-1 animate-in fade-in slide-in-from-right-2">
-                  <button 
-                    onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'approved')}
-                    className="px-2 py-1 bg-green-600 text-white text-[10px] font-bold rounded uppercase hover:bg-green-700 transition-colors"
-                  >
-                    Approve ({selectedLeaveRequests.size})
-                  </button>
-                  <button 
-                    onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'rejected')}
-                    className="px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded uppercase hover:bg-red-700 transition-colors"
-                  >
-                    Reject
-                  </button>
-                </div>
-              )}
-              <span className="badge bg-purple-50 text-purple-600 border border-purple-100 font-mono text-[9px] uppercase font-bold">
-                {leaveRequests.length} Pending
-              </span>
-            </div>
-          </div>
-          <div className="divide-y divide-app-bg max-h-[400px] overflow-y-auto">
-            {leaveRequests.slice((leavePage - 1) * PAGE_SIZE, leavePage * PAGE_SIZE).map(l => {
-              const emp = employees.find(e => e.uid === l.employeeId);
-              return (
-                <div key={l.id} className="py-3 flex items-center justify-between hover:bg-gray-50 transition-colors pr-2">
-                  <div className="flex items-center gap-3">
-                    <input 
-                      type="checkbox" 
-                      className="w-3.5 h-3.5 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
-                      checked={selectedLeaveRequests.has(l.id)}
-                      onChange={() => toggleSelection(l.id, selectedLeaveRequests, setSelectedLeaveRequests)}
-                    />
-                    <div>
-                      <p className="text-xs font-bold text-gray-900">{emp?.fullName}</p>
-                      <div className="flex items-center gap-2">
-                        <p className="text-[10px] text-gray-400 font-medium uppercase tracking-tight flex items-center gap-1">
-                          <Calendar size={10} /> {l.type} leave: {l.startDate} to {l.endDate}
-                        </p>
-                        {emp?.branch && (
-                          <span className="text-[8px] text-gray-400 font-black uppercase flex items-center gap-0.5 border-l pl-2">
-                            <MapPin size={8} /> {emp.branch}
-                          </span>
-                        )}
-                      </div>
-                      {l.reason && <p className="text-[9px] text-gray-500 italic mt-0.5">"{l.reason}"</p>}
-                    </div>
-                  </div>
-                  <div className="flex gap-1.5 scale-90">
-                    <button 
-                      onClick={() => handleStatusUpdate('leave_requests', l.id, 'approved')}
-                      className="p-2 bg-green-50 text-green-600 rounded-md hover:bg-green-100"
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button 
-                      onClick={() => handleStatusUpdate('leave_requests', l.id, 'rejected')}
-                      className="p-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-            {leaveRequests.length === 0 && <p className="p-8 text-center text-gray-400 text-[11px] italic">No pending leave requests found.</p>}
-          </div>
-          <Pagination 
-            currentPage={leavePage} 
-            totalItems={leaveRequests.length} 
-            pageSize={PAGE_SIZE} 
-            onPageChange={setLeavePage} 
-          />
-        </section>
-
         {/* ZIMRA Tax Calculator */}
-        <div className="lg:col-span-2">
+        <div>
           <TaxCalculator />
         </div>
       </div>

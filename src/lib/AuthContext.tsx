@@ -54,7 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('users')
+        .from('profiles')
         .select('*')
         .eq('id', userId)
         .maybeSingle();
@@ -72,8 +72,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await supabase.auth.signOut();
   };
 
-  const isSuperAdmin = user?.email?.toLowerCase() === 'lodzax@gmail.com' || user?.email?.toLowerCase() === 'accounts@mineazy.co.zw' || profile?.role === 'superadmin';
-  const isAdmin = isSuperAdmin || profile?.role === 'admin' || profile?.role === 'management';
+  const isSuperAdmin = user?.email?.toLowerCase() === 'lodzax@gmail.com' || user?.email?.toLowerCase() === 'accounts@mineazy.co.zw' || profile?.role?.toLowerCase() === 'superadmin';
+  const isAdmin = isSuperAdmin || profile?.role?.toLowerCase() === 'admin' || profile?.role?.toLowerCase() === 'management';
 
   // Add uid alias for compatibility with Firebase-era code
   const userCompatibility = user ? { ...user, uid: user.id } : null;

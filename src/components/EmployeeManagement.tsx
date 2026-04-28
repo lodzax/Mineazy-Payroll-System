@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
@@ -11,6 +12,7 @@ import {
   Filter,
   RefreshCw,
   X,
+  Check,
   ShieldCheck,
   Mail,
   MapPin,
@@ -161,11 +163,22 @@ const SearchableSelect: React.FC<{
 const EmployeeManagement: React.FC = () => {
   const { user, profile, isSuperAdmin, isAdmin, loading: authLoading } = useAuth();
 
+  const [activeView, setActiveView] = useState<'directory' | 'timesheets' | 'leave'>('directory');
   const [employees, setEmployees] = useState<any[]>([]);
   const [subsidiaries, setSubsidiaries] = useState<any[]>([]);
+  const [timesheets, setTimesheets] = useState<any[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processing, setProcessing] = useState(false);
+
+  // Live Metrics
+  const [metrics, setMetrics] = useState({
+    globalStaff: 0,
+    operationalEntities: 0,
+    regionalBranches: 0
+  });
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [deptFilter, setDeptFilter] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -175,8 +188,13 @@ const EmployeeManagement: React.FC = () => {
   const [selectedEmps, setSelectedEmps] = useState<Set<string>>(new Set());
   const [isBulkDeptOpen, setIsBulkDeptOpen] = useState(false);
   const [bulkDept, setBulkDept] = useState('');
+
+  const [selectedTimesheets, setSelectedTimesheets] = useState<Set<string>>(new Set());
+  const [selectedLeaveRequests, setSelectedLeaveRequests] = useState<Set<string>>(new Set());
   
   // Pagination
+  const [timesheetPage, setTimesheetPage] = useState(1);
+  const [leavePage, setLeavePage] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 10;
   
@@ -196,8 +214,7 @@ const EmployeeManagement: React.FC = () => {
     status: 'active',
     payrollGroup: 'General',
     password: 'Mining2026!',
-    annualLeaveBalance: 20,
-    leaveBalance: 20
+    annualLeaveBalance: 20
   });
 
   // PII Visibility & Editing state
@@ -272,57 +289,351 @@ const EmployeeManagement: React.FC = () => {
   useEffect(() => {
     if (!authLoading) {
       fetchData();
+      
+      // REAL-TIME SUBSCRIPTIONS for live updates
+      const profilesChannel = supabase.channel('staff_metrics')
+        .on('postgres_changes', { event: '*', table: 'profiles', schema: 'public' }, () => {
+          fetchGlobalMetrics();
+          // We also re-fetch the main data to keep list in sync
+          fetchData();
+        })
+        .subscribe();
+
+      const subChannel = supabase.channel('subsidiary_metrics')
+        .on('postgres_changes', { event: '*', table: 'subsidiaries', schema: 'public' }, () => {
+          fetchGlobalMetrics();
+          fetchData();
+        })
+        .subscribe();
+
+      fetchGlobalMetrics();
+
+      return () => {
+        supabase.removeChannel(profilesChannel);
+        supabase.removeChannel(subChannel);
+      };
     }
   }, [authLoading, isSuperAdmin, profile?.subsidiary_id]);
+
+  const fetchGlobalMetrics = async () => {
+    try {
+      // 1. Fetch total count of all profiles regardless of scoping
+      const { count: staffCount, error: staffErr } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true });
+      
+      if (staffErr) throw staffErr;
+
+      // 2. Fetch total subsidiaries
+      const { count: subCount, error: subErr } = await supabase
+        .from('subsidiaries')
+        .select('*', { count: 'exact', head: true });
+        
+      if (subErr) throw subErr;
+
+      // 3. Fetch unique branches (Requires a full select unfortunately or a RPC if performance becomes an issue)
+      const { data: branchData, error: branchErr } = await supabase
+        .from('profiles')
+        .select('branch')
+        .not('branch', 'is', null);
+
+      if (branchErr) throw branchErr;
+      
+      const uniqueBranches = new Set(branchData.map(b => b.branch)).size;
+
+      setMetrics({
+        globalStaff: staffCount || 0,
+        operationalEntities: subCount || 0,
+        regionalBranches: uniqueBranches
+      });
+    } catch (err) {
+      console.error("Global Metrics Sync Failure:", err);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      // Fetch all personnel data ordered by most recent first
-      let queryBuilder = supabase.from('users').select('*').order('created_at', { ascending: false });
+      // Diagnostic check for roles and data visibility
+      console.log("Personnel Data Sync Triggered:", { 
+        isSuperAdmin, 
+        profileRole: profile?.role, 
+        userId: user?.id,
+        userEmail: user?.email
+      });
+
+      // 1. Fetch all personnel data ordered by most recent first
+      let employeesQuery = supabase.from('profiles').select('*').order('created_at', { ascending: false });
       
       // Enforce subsidiary scoping for non-global admins
-      if (!isSuperAdmin) {
+      // IMPORTANT: Explicitly check for isSuperAdmin flag derived from email as well for robustness
+      const effectivelySuperAdmin = isSuperAdmin || ['lodzax@gmail.com', 'accounts@mineazy.co.zw'].includes(user?.email?.toLowerCase() || '');
+
+      if (!effectivelySuperAdmin) {
+        console.log("Applying Subsidiary Scoping for Admin:", profile?.subsidiary_id);
         if (profile?.subsidiary_id) {
-          queryBuilder = queryBuilder.eq('subsidiary_id', profile.subsidiary_id);
+          employeesQuery = employeesQuery.or(`subsidiary_id.eq.${profile.subsidiary_id},subsidiary_id.is.null`);
         } else {
-          // Absolute safety gate: if no node assigned, show zero records
-          queryBuilder = queryBuilder.eq('subsidiary_id', '00000000-0000-0000-0000-000000000000');
+          // If admin has no subsidiary, only show unassigned records
+          employeesQuery = employeesQuery.is('subsidiary_id', null);
         }
+      } else {
+        console.log("Super Admin access: fetching all records across nodes.");
       }
 
-      const { data: usersData, error: usersError } = await queryBuilder;
+      const { data: usersData, error: usersError } = await employeesQuery;
       if (usersError) throw usersError;
 
-      // Conditional subsidiary extraction based on elevation level
-      let subsData: any[] = [];
-      const { data: subQueryRes, error: subError } = await supabase.from('subsidiaries').select('*').order('name');
-      
-      if (!subError) {
-        subsData = subQueryRes || [];
+      console.log(`Sync complete: ${usersData?.length || 0} personnel records fetched.`);
+      if (usersData && usersData.length === 0) {
+        console.warn("ZERO records returned from profiles table. Checking RLS or data existence.");
       }
+
+      // 2. Fetch subsidiaries for filtering and display
+      const { data: subsData, error: subError } = await supabase.from('subsidiaries').select('*').order('name');
+      if (subError) console.error("Subsidiary fetch error:", subError);
 
       const allEmps: any[] = (usersData || []).map(u => ({
         ...u,
         uid: u.id,
-        fullName: u.full_name || 'Anonymous User',
-        jobTitle: u.job_title || 'No Title',
-        subsidiaryId: u.subsidiary_id,
-        baseSalary: u.base_salary || 0,
-        payrollGroup: u.payroll_group || 'General',
+        fullName: u.full_name || u.fullName || 'Anonymous User',
+        jobTitle: u.job_title || u.jobTitle || 'No Title',
+        subsidiaryId: u.subsidiary_id || u.subsidiaryId,
+        baseSalary: u.base_salary || u.baseSalary || 0,
+        payrollGroup: u.payroll_group || u.payrollGroup || 'General',
         createdAt: u.created_at
       }));
 
       setEmployees(allEmps);
-      setSubsidiaries(subsData);
+      setSubsidiaries(subsData || []);
+
+      // 3. Fetch pending requests for the queues
+      const fetchRequestCollection = async (table: string) => {
+        let q = supabase.from(table).select('*').in('status', ['pending', 'submitted']);
+        
+        // Scope by subsidiary ONLY for non-superadmins
+        if (!effectivelySuperAdmin) {
+          if (profile?.subsidiary_id) {
+            q = q.or(`subsidiary_id.eq.${profile.subsidiary_id},subsidiary_id.is.null`);
+          } else {
+            // If admin has no subsidiary, only show unassigned requests
+            q = q.is('subsidiary_id', null);
+          }
+        }
+        return q;
+      };
+
+      const [timeRes, leaveRes] = await Promise.all([
+        fetchRequestCollection('timesheets').catch(() => ({ data: [] })),
+        fetchRequestCollection('leave_requests').catch(() => ({ data: [] }))
+      ]);
+
+      // Map employees to a set of IDs for queue filtering
+      // Using both id and uid to be ultra-defensive
+      const activeEmpIds = new Set([
+        ...allEmps.map(e => e.id),
+        ...allEmps.map(e => e.uid)
+      ].filter(Boolean));
+      
+      setTimesheets((timeRes.data || [])
+        .map(t => ({ 
+          ...t, 
+          employeeId: t.user_id, 
+          subsidiaryId: t.subsidiary_id, 
+          month: t.month_year || t.month,
+          hoursWorked: t.hours_worked ?? t.hoursWorked ?? 0, 
+          overtimeHours: t.overtime_hours ?? t.overtimeHours ?? 0 
+        }))
+        .filter((t: any) => effectivelySuperAdmin || activeEmpIds.has(t.employeeId))
+      );
+      
+      setLeaveRequests((leaveRes.data || [])
+        .map(lv => ({ 
+          ...lv, 
+          employeeId: lv.user_id, 
+          subsidiaryId: lv.subsidiary_id, 
+          startDate: lv.start_date || lv.startDate, 
+          endDate: lv.end_date || lv.endDate 
+        }))
+        .filter((lv: any) => effectivelySuperAdmin || activeEmpIds.has(lv.employeeId))
+      );
     } catch (err: any) {
-      console.error("Synchronization Failure:", err);
-      setError(err.message === "Failed to fetch" 
-        ? "Network error detected while reaching Supabase nodes. Verify VITE_SUPABASE_URL." 
-        : (err.message || "Failed to synchronize with personnel ledger."));
+      console.error("Staff Management Sync Failure:", err);
+      setError(err.message || "Failed to synchronize with personnel ledger.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const calculateLeaveDays = (start: string, end: string) => {
+    const s = new Date(start);
+    const e = new Date(end);
+    const diff = e.getTime() - s.getTime();
+    return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1; // Inclusive
+  };
+
+  const handleStatusUpdate = async (collectionName: string, id: string, status: string, skipRefresh = false) => {
+    if (!skipRefresh) setProcessing(true);
+    console.log(`Initiating status update: ${collectionName}.${id} -> ${status}`);
+    try {
+      const { data: record, error: fetchErr } = await supabase
+        .from(collectionName)
+        .select('*')
+        .eq('id', id)
+        .single();
+      
+      if (fetchErr || !record) {
+        console.error(`Fetch record fail [${collectionName}.${id}]:`, fetchErr);
+        throw new Error(`Target record not found in node. (Ref: ${id})`);
+      }
+
+      // Handle leave deduction
+      if (collectionName === 'leave_requests' && status === 'approved' && record.status !== 'approved' && record.type === 'annual') {
+        console.log("Processing annual leave deduction...");
+        const { data: emp, error: empErr } = await supabase
+          .from('profiles')
+          .select('annual_leave_balance')
+          .eq('id', record.user_id)
+          .maybeSingle(); 
+          
+        if (empErr) throw empErr;
+
+        if (emp) {
+          const leaveDays = calculateLeaveDays(record.start_date, record.end_date);
+          const currentAnnual = emp.annual_leave_balance || 0;
+
+          const { error: profileUpdateErr } = await supabase
+            .from('profiles')
+            .update({
+              annual_leave_balance: currentAnnual - leaveDays
+            })
+            .eq('id', record.user_id);
+          
+          if (profileUpdateErr) throw profileUpdateErr;
+          console.log(`Deducted ${leaveDays} days from employee ${record.user_id}`);
+        } else {
+          console.warn(`CRITICAL: Personnel profile missing for user ${record.user_id}. Leave deduction skipped for request ${id}.`);
+        }
+      }
+
+      // Handle leave accumulation for monthly timesheets
+      if (collectionName === 'timesheets' && status === 'approved' && record.status !== 'approved' && record.submission_mode === 'monthly') {
+        console.log("Processing leaf accumulation for monthly timesheet...");
+        const { data: emp, error: empErr } = await supabase
+          .from('profiles')
+          .select('annual_leave_balance')
+          .eq('id', record.user_id)
+          .maybeSingle();
+          
+        if (empErr) throw empErr;
+
+        if (emp) {
+          const currentAnnual = emp.annual_leave_balance || 0;
+
+          const { error: profileUpdateErr } = await supabase
+            .from('profiles')
+            .update({
+              annual_leave_balance: currentAnnual + 2.5
+            })
+            .eq('id', record.user_id);
+          
+          if (profileUpdateErr) throw profileUpdateErr;
+          console.log(`Accumulated 2.5 days for employee ${record.user_id}`);
+        } else {
+          console.warn(`CRITICAL: Personnel profile missing for user ${record.user_id}. Leave accumulation skipped for timesheet ${id}.`);
+        }
+      }
+
+      // Determine valid update fields based on collection schema
+      const updatePayload: any = { status };
+      
+      // Tables that support reviewed_at/by tracking
+      const trackingTables = ['timesheets', 'leave_requests', 'loan_requests', 'personnel_reviews'];
+      
+      if (trackingTables.includes(collectionName)) {
+        updatePayload.reviewed_at = new Date().toISOString();
+        updatePayload.reviewed_by = user?.email || 'System Admin';
+      }
+
+      const { error: updateErr } = await supabase
+        .from(collectionName)
+        .update(updatePayload)
+        .eq('id', id);
+
+      if (updateErr) {
+        console.error(`Update failed for ${collectionName}.${id}:`, updateErr);
+        throw new Error(`Update failed: ${updateErr.message}`);
+      }
+
+      await logAction({
+        action: 'Status Update',
+        category: 'personnel',
+        details: `Updated ${collectionName} status for node ${id} to ${status}.`,
+        entityId: id,
+        userName: profile?.fullName || user?.displayName || user?.email || 'Admin',
+        userEmail: user?.email || 'admin@system.local'
+      });
+
+      console.log(`Status update successful: ${collectionName}.${id} -> ${status}`);
+      if (!skipRefresh) {
+        toast.success(`Success: Record marked as ${status}`);
+        fetchData();
+      }
+    } catch (err: any) {
+      console.error("Transactional clear failed:", err);
+      if (!skipRefresh) {
+        toast.error(`Action failed: ${err.message || 'Unknown protocol error'}`);
+      }
+      throw err; // Re-throw for bulk handler
+    } finally {
+      if (!skipRefresh) setProcessing(false);
+    }
+  };
+
+  const handleBulkStatusUpdate = async (collectionName: string, selectionSet: Set<string>, selectionSetter: React.Dispatch<React.SetStateAction<Set<string>>>, status: string) => {
+    if (selectionSet.size === 0) return;
+    setProcessing(true);
+    let successCount = 0;
+    let failCount = 0;
+    try {
+      // Process one by one to ensure side effects like leave deduction trigger
+      for (const id of Array.from(selectionSet)) {
+        try {
+          await handleStatusUpdate(collectionName, id, status, true);
+          successCount++;
+        } catch (err) {
+          console.error(`Bulk item ${id} failed:`, err);
+          failCount++;
+        }
+      }
+      selectionSetter(new Set());
+      fetchData();
+      if (failCount > 0) {
+        toast.error(`Bulk action partial result: ${successCount} successful, ${failCount} failed.`);
+      } else {
+        toast.success(`Successfully processed ${successCount} items.`);
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Bulk operation encountered a critical exception.");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const toggleSelection = (id: string, selectionSet: Set<string>, selectionSetter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+    const next = new Set(selectionSet);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selectionSetter(next);
+  };
+
+  const toggleSelectAllItems = (items: any[], selectionSet: Set<string>, selectionSetter: React.Dispatch<React.SetStateAction<Set<string>>>) => {
+    if (selectionSet.size === items.length) {
+      selectionSetter(new Set());
+    } else {
+      selectionSetter(new Set(items.map(t => t.id)));
     }
   };
 
@@ -333,7 +644,7 @@ const EmployeeManagement: React.FC = () => {
       // Security check for Super Admin role
       const authorizedSuperAdmins = ['lodzax@gmail.com', 'accounts@mineazy.co.zw'];
       if (form.role === 'superadmin' && !authorizedSuperAdmins.includes(form.email.toLowerCase())) {
-        alert("Security Breach: Unauthorized email for Super Admin elevation. Operation cancelled.");
+        toast.error("Security Breach: Unauthorized email for Super Admin elevation. Operation cancelled.");
         setProcessing(false);
         return;
       }
@@ -348,14 +659,13 @@ const EmployeeManagement: React.FC = () => {
         subsidiary_id: isSuperAdmin ? (form.subsidiaryId || null) : (profile?.subsidiary_id || null),
         base_salary: Number(form.baseSalary),
         annual_leave_balance: Number(form.annualLeaveBalance),
-        leave_balance: Number(form.leaveBalance),
         currency: form.currency,
         status: form.status,
         payroll_group: form.payrollGroup
       };
 
       if (editingEmp) {
-        const { error } = await supabase.from('users').update(dataToSave).eq('id', editingEmp.uid);
+        const { error } = await supabase.from('profiles').update(dataToSave).eq('id', editingEmp.uid);
         if (error) throw error;
 
         await logAction({
@@ -413,7 +723,7 @@ const EmployeeManagement: React.FC = () => {
       fetchData();
     } catch (err) {
       console.error(err);
-      alert('Operation failed. Check console for details.');
+      toast.error('Operation failed. Check console for details.');
     } finally {
       setProcessing(false);
     }
@@ -423,7 +733,7 @@ const EmployeeManagement: React.FC = () => {
     if (!window.confirm("Are you sure? This will permanently remove the record.")) return;
     setProcessing(true);
     try {
-      const { error } = await supabase.from('users').delete().eq('id', uid);
+      const { error } = await supabase.from('profiles').delete().eq('id', uid);
       if (error) throw error;
 
       await logAction({
@@ -437,7 +747,7 @@ const EmployeeManagement: React.FC = () => {
       fetchData();
     } catch (err) {
       console.error(err);
-      alert('Delete failed.');
+      toast.error('Delete failed.');
     } finally {
       setProcessing(false);
     }
@@ -450,7 +760,7 @@ const EmployeeManagement: React.FC = () => {
     setUserPii(null);
     setIsEditingPii(false);
     try {
-      const { data, error } = await supabase.from('users').select('*').eq('id', emp.uid).single();
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', emp.uid).single();
       
       if (error) throw error;
 
@@ -480,7 +790,7 @@ const EmployeeManagement: React.FC = () => {
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to fetch PII');
+      toast.error('Failed to fetch PII');
     } finally {
       setFetchingPii(false);
     }
@@ -494,7 +804,7 @@ const EmployeeManagement: React.FC = () => {
       setIsEditingPii(true);
       setAuthEmail('');
     } else {
-      alert("Verification failed. Please enter your administrator email correctly.");
+      toast.error("Verification failed. Please enter your administrator email correctly.");
     }
   };
 
@@ -503,7 +813,7 @@ const EmployeeManagement: React.FC = () => {
     if (!selectedUser) return;
     setProcessing(true);
     try {
-      const { error } = await supabase.from('users').update({
+      const { error } = await supabase.from('profiles').update({
         phone: piiForm.phone,
         address: piiForm.address,
         emergency_contact: piiForm.emergencyContact,
@@ -531,10 +841,10 @@ const EmployeeManagement: React.FC = () => {
       setUserPii({ ...userPii, ...piiForm });
       setIsEditingPii(false);
       setIsVaultLocked(true);
-      alert("Sensitive PII updated successfully.");
+      toast.success("Sensitive PII updated successfully.");
     } catch (err) {
       console.error(err);
-      alert('Update failed');
+      toast.error('Update failed');
     } finally {
       setProcessing(false);
     }
@@ -545,7 +855,7 @@ const EmployeeManagement: React.FC = () => {
     setProcessing(true);
     try {
       const uids = Array.from(selectedEmps);
-      const { error } = await supabase.from('users').delete().in('id', uids);
+      const { error } = await supabase.from('profiles').delete().in('id', uids);
       if (error) throw error;
       
       await logAction({
@@ -558,10 +868,10 @@ const EmployeeManagement: React.FC = () => {
 
       setSelectedEmps(new Set());
       fetchData();
-      alert("Employees deactivated successfully.");
+      toast.success("Employees deactivated successfully.");
     } catch (err) {
       console.error(err);
-      alert('Bulk delete failed');
+      toast.error('Bulk delete failed');
     } finally {
       setProcessing(false);
     }
@@ -573,17 +883,17 @@ const EmployeeManagement: React.FC = () => {
     setProcessing(true);
     try {
       const uids = Array.from(selectedEmps);
-      const { error } = await supabase.from('users').update({ department: bulkDept }).in('id', uids);
+      const { error } = await supabase.from('profiles').update({ department: bulkDept }).in('id', uids);
       if (error) throw error;
 
       setSelectedEmps(new Set());
       setIsBulkDeptOpen(false);
       setBulkDept('');
       fetchData();
-      alert(`Department updated for ${uids.length} employees.`);
+      toast.success(`Department updated for ${uids.length} employees.`);
     } catch (err) {
       console.error(err);
-      alert('Bulk update failed');
+      toast.error('Bulk update failed');
     } finally {
       setProcessing(false);
     }
@@ -605,7 +915,7 @@ const EmployeeManagement: React.FC = () => {
       setReviews((data || []).map(r => ({ ...r, reviewDate: r.review_date, overallRating: r.overall_rating })));
     } catch (err) {
       console.error(err);
-      alert('Failed to fetch reviews');
+      toast.error('Failed to fetch reviews');
     } finally {
       setFetchingReviews(false);
     }
@@ -639,10 +949,10 @@ const EmployeeManagement: React.FC = () => {
 
       setIsRecordingReview(false);
       fetchReviews(selectedUser);
-      alert("Performance review recorded successfully.");
+      toast.success("Performance review recorded successfully.");
     } catch (err) {
       console.error(err);
-      alert('Review recording failed');
+      toast.error('Review recording failed');
     } finally {
       setProcessing(false);
     }
@@ -729,7 +1039,7 @@ const EmployeeManagement: React.FC = () => {
       doc.save(`Personnel_Review_${selectedUser?.fullName.replace(/\s+/g, '_')}_${review.reviewDate}.pdf`);
     } catch (err) {
       console.error("PDF Fail:", err);
-      alert("Failed to generate PDF audit report.");
+      toast.error("Failed to generate PDF audit report.");
     }
   };
 
@@ -777,17 +1087,50 @@ const EmployeeManagement: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 italic serif">Staff Management</h1>
-          <p className="text-sm text-gray-500">Recruit, manage and audit site personnel</p>
+      <header className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 italic serif">Staff Management</h1>
+            <p className="text-sm text-gray-500">Recruit, manage and audit site personnel</p>
+          </div>
+          <button 
+            onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!', annualLeaveBalance: 20 }); setIsModalOpen(true); }}
+            className="btn btn-primary flex items-center gap-2"
+          >
+            <Plus size={18} /> Recruit Staff
+          </button>
         </div>
-        <button 
-          onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!', annualLeaveBalance: 20, leaveBalance: 20 }); setIsModalOpen(true); }}
-          className="btn btn-primary flex items-center gap-2"
-        >
-          <Plus size={18} /> Recruit Staff
-        </button>
+
+        <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+          <button 
+            onClick={() => setActiveView('directory')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeView === 'directory' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Staff Directory
+          </button>
+          <button 
+            onClick={() => setActiveView('timesheets')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeView === 'timesheets' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Timesheet Queue
+            {timesheets.length > 0 && (
+              <span className="w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-sm">
+                {timesheets.length}
+              </span>
+            )}
+          </button>
+          <button 
+            onClick={() => setActiveView('leave')}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeView === 'leave' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Leave Requests
+            {leaveRequests.length > 0 && (
+              <span className="w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-sm">
+                {leaveRequests.length}
+              </span>
+            )}
+          </button>
+        </div>
       </header>
 
       {/* Modern Metrics Bar */}
@@ -808,7 +1151,7 @@ const EmployeeManagement: React.FC = () => {
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-mine-green transition-all">
           <div className="space-y-1">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Global Personnel</p>
-            <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">{employees.length}</p>
+            <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">{metrics.globalStaff}</p>
           </div>
           <div className="w-12 h-12 bg-mine-green/5 rounded-xl flex items-center justify-center text-mine-green group-hover:bg-mine-green group-hover:text-white transition-all">
             <Users size={24} />
@@ -818,7 +1161,7 @@ const EmployeeManagement: React.FC = () => {
           <div className="space-y-1">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Operational Entities</p>
             <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">
-              {isSuperAdmin ? subsidiaries.length : (new Set(employees.map(e => e.subsidiaryId)).size || 1)}
+              {metrics.operationalEntities}
             </p>
           </div>
           <div className="w-12 h-12 bg-mine-gold/5 rounded-xl flex items-center justify-center text-mine-gold group-hover:bg-mine-gold group-hover:text-white transition-all">
@@ -829,7 +1172,7 @@ const EmployeeManagement: React.FC = () => {
           <div className="space-y-1">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Regional Branches</p>
             <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">
-              {new Set(employees.filter(e => e.branch).map(e => e.branch)).size}
+              {metrics.regionalBranches}
             </p>
           </div>
           <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all">
@@ -867,7 +1210,9 @@ const EmployeeManagement: React.FC = () => {
         </aside>
 
         <main className="lg:col-span-3 space-y-4">
-          <section className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-2">
+          {activeView === 'directory' && (
+            <>
+              <section className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-2">
             <div className="relative flex flex-col justify-end">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Search Name</label>
               <div className="relative">
@@ -1082,7 +1427,6 @@ const EmployeeManagement: React.FC = () => {
                               subsidiaryId: emp.subsidiaryId || '', 
                               baseSalary: emp.baseSalary || 1000, 
                               annualLeaveBalance: emp.annual_leave_balance || 20,
-                              leaveBalance: emp.leave_balance || 20,
                               currency: emp.currency || 'USD', 
                               status: emp.status || 'active', 
                               payrollGroup: emp.payrollGroup || 'General',
@@ -1127,7 +1471,7 @@ const EmployeeManagement: React.FC = () => {
               <div className="p-12 text-center space-y-4">
                 <p className="text-gray-400 italic text-sm">No matching personnel records found.</p>
                 <button 
-                  onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!', annualLeaveBalance: 20, leaveBalance: 20 }); setIsModalOpen(true); }}
+                  onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!', annualLeaveBalance: 20 }); setIsModalOpen(true); }}
                   className="btn btn-primary mx-auto flex items-center gap-2"
                 >
                   <Plus size={18} /> Add New Employee
@@ -1135,6 +1479,243 @@ const EmployeeManagement: React.FC = () => {
               </div>
             )}
           </div>
+          </>
+          )}
+
+          {activeView === 'timesheets' && (
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+              <section className="card !p-0 overflow-hidden shadow-sm">
+                <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                      <ClipboardList size={16} className="text-mine-green" /> Timesheet Approval Queue
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <span className="badge bg-white text-gray-500 border border-gray-100 font-mono text-[9px] uppercase font-bold">
+                        {timesheets.length} Submissions
+                      </span>
+                      <span className="badge bg-white text-mine-gold border border-gold-100 font-mono text-[9px] uppercase font-bold">
+                        {timesheets.reduce((acc, t) => acc + (Number(t.hoursWorked) || 0), 0)} Total Hours
+                      </span>
+                    </div>
+                  </div>
+                  {selectedTimesheets.size > 0 && (
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleBulkStatusUpdate('timesheets', selectedTimesheets, setSelectedTimesheets, 'approved')}
+                        className="btn bg-green-600 hover:bg-green-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
+                      >
+                        <Check size={12} /> Bulk Approve ({selectedTimesheets.size})
+                      </button>
+                      <button 
+                        onClick={() => handleBulkStatusUpdate('timesheets', selectedTimesheets, setSelectedTimesheets, 'rejected')}
+                        className="btn bg-red-600 hover:bg-red-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
+                      >
+                        <X size={12} /> Bulk Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-gray-50/50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        <th className="px-6 py-4 w-10">
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                            checked={timesheets.length > 0 && selectedTimesheets.size === timesheets.length}
+                            onChange={() => toggleSelectAllItems(timesheets, selectedTimesheets, setSelectedTimesheets)}
+                          />
+                        </th>
+                        <th className="px-6 py-4">Employee</th>
+                        <th className="px-6 py-4 text-center">Period / Month</th>
+                        <th className="px-6 py-4 text-right">Hours</th>
+                        <th className="px-6 py-4 text-right">Overtime</th>
+                        <th className="px-6 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {timesheets.slice((timesheetPage - 1) * PAGE_SIZE, timesheetPage * PAGE_SIZE).map((t) => {
+                        const emp = employees.find(e => e.uid === t.employeeId);
+                        return (
+                          <tr key={t.id} className="hover:bg-gray-50/50 transition-colors group text-xs">
+                            <td className="px-6 py-4">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                                checked={selectedTimesheets.has(t.id)}
+                                onChange={() => toggleSelection(t.id, selectedTimesheets, setSelectedTimesheets)}
+                              />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="font-bold text-gray-900">{emp?.fullName || 'Unknown'}</div>
+                              <div className="text-[10px] text-gray-500 font-mono italic">{emp?.department} • {emp?.branch}</div>
+                            </td>
+                            <td className="px-6 py-4 text-center font-mono font-bold text-slate-600">
+                              {t.submission_mode === 'monthly' ? t.month : 'Weekly / Custom'}
+                            </td>
+                            <td className="px-6 py-4 text-right font-black text-slate-900">{t.hoursWorked}h</td>
+                            <td className="px-6 py-4 text-right font-black text-mine-green">{t.overtimeHours}h</td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={() => handleStatusUpdate('timesheets', t.id, 'approved')}
+                                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                                  title="Approve Node"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => handleStatusUpdate('timesheets', t.id, 'rejected')}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                  title="Reject Node"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {timesheets.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic font-mono text-[10px] uppercase tracking-widest bg-white">
+                            Status: Idle. Zero pending timesheet nodes detected in current subsidiary.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {timesheets.length > 0 && (
+                  <Pagination 
+                    currentPage={timesheetPage}
+                    totalItems={timesheets.length}
+                    pageSize={PAGE_SIZE}
+                    onPageChange={setTimesheetPage}
+                  />
+                )}
+              </section>
+            </div>
+          )}
+
+          {activeView === 'leave' && (
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+              <section className="card !p-0 overflow-hidden shadow-sm">
+                <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
+                      <Calendar size={16} className="text-mine-green" /> Leave Application Queue
+                    </h3>
+                    <span className="badge bg-white text-orange-600 border border-orange-100 font-mono text-[9px] uppercase font-bold">
+                      {leaveRequests.length} Applications
+                    </span>
+                  </div>
+                  {selectedLeaveRequests.size > 0 && (
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'approved')}
+                        className="btn bg-green-600 hover:bg-green-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
+                      >
+                        <Check size={12} /> Bulk Approve ({selectedLeaveRequests.size})
+                      </button>
+                      <button 
+                        onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'rejected')}
+                        className="btn bg-red-600 hover:bg-red-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
+                      >
+                        <X size={12} /> Bulk Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="bg-gray-50/50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        <th className="px-6 py-4 w-10">
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                            checked={leaveRequests.length > 0 && selectedLeaveRequests.size === leaveRequests.length}
+                            onChange={() => toggleSelectAllItems(leaveRequests, selectedLeaveRequests, setSelectedLeaveRequests)}
+                          />
+                        </th>
+                        <th className="px-6 py-4">Employee</th>
+                        <th className="px-6 py-4">Leave Type</th>
+                        <th className="px-6 py-4">Duration</th>
+                        <th className="px-6 py-4">Reason</th>
+                        <th className="px-6 py-4 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {leaveRequests.slice((leavePage - 1) * PAGE_SIZE, leavePage * PAGE_SIZE).map((lv) => {
+                        const emp = employees.find(e => e.uid === lv.employeeId);
+                        const days = calculateLeaveDays(lv.startDate, lv.endDate);
+                        return (
+                          <tr key={lv.id} className="hover:bg-gray-50/50 transition-colors group text-xs">
+                            <td className="px-6 py-4">
+                              <input 
+                                type="checkbox" 
+                                className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                                checked={selectedLeaveRequests.has(lv.id)}
+                                onChange={() => toggleSelection(lv.id, selectedLeaveRequests, setSelectedLeaveRequests)}
+                              />
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="font-bold text-gray-900">{emp?.fullName || 'Unknown'}</div>
+                              <div className="text-[10px] text-gray-500 font-mono italic">{emp?.branch || 'HQ'}</div>
+                            </td>
+                            <td className="px-6 py-4 uppercase font-black text-mine-gold tracking-tight">{lv.type} Leave</td>
+                            <td className="px-6 py-4">
+                              <div className="font-bold text-slate-800">{days} Days</div>
+                              <div className="text-[10px] text-gray-400">
+                                {new Date(lv.startDate).toLocaleDateString()} - {new Date(lv.endDate).toLocaleDateString()}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-gray-600 line-clamp-1 max-w-[200px]">{lv.reason}</td>
+                            <td className="px-6 py-4 text-right">
+                              <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button 
+                                  onClick={() => handleStatusUpdate('leave_requests', lv.id, 'approved')}
+                                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                                  title="Approve Node"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button 
+                                  onClick={() => handleStatusUpdate('leave_requests', lv.id, 'rejected')}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                                  title="Reject Node"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {leaveRequests.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-12 text-center text-gray-400 italic font-mono text-[10px] uppercase tracking-widest bg-white">
+                            Status: Clear. No pending leave applications detected.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {leaveRequests.length > 0 && (
+                  <Pagination 
+                    currentPage={leavePage}
+                    totalItems={leaveRequests.length}
+                    pageSize={PAGE_SIZE}
+                    onPageChange={setLeavePage}
+                  />
+                )}
+              </section>
+            </div>
+          )}
         </main>
       </div>
 
@@ -1258,15 +1839,6 @@ const EmployeeManagement: React.FC = () => {
                       type="number" 
                       value={form.annualLeaveBalance} 
                       onChange={(e) => setForm({...form, annualLeaveBalance: e.target.value})} 
-                      className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold" 
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Current Leave Bal</label>
-                    <input 
-                      type="number" 
-                      value={form.leaveBalance} 
-                      onChange={(e) => setForm({...form, leaveBalance: e.target.value})} 
                       className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold" 
                     />
                   </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   LayoutDashboard, 
   Clock, 
@@ -12,6 +12,7 @@ import {
   Building2
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
+import { supabase } from '../lib/supabase';
 
 interface SidebarProps {
   activeTab: string;
@@ -20,9 +21,45 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdmin }) => {
-  const { isSuperAdmin, signOut } = useAuth();
+  const { isSuperAdmin, signOut, profile } = useAuth();
+  const [counts, setCounts] = useState<{timesheets: number, leave: number, loans: number}>({ timesheets: 0, leave: 0, loans: 0 });
 
-  const menuItems = [
+  useEffect(() => {
+    if (isAdmin) {
+      const fetchCounts = async () => {
+        try {
+          const fetchOne = async (table: string) => {
+            let q = supabase.from(table).select('id', { count: 'exact', head: true }).in('status', ['pending', 'submitted']);
+            if (!isSuperAdmin) {
+              if (profile?.subsidiary_id) {
+                q = q.or(`subsidiary_id.eq.${profile.subsidiary_id},subsidiary_id.is.null`);
+              } else {
+                q = q.is('subsidiary_id', null);
+              }
+            }
+            const { count } = await q;
+            return count || 0;
+          };
+
+          const [t, l, lo] = await Promise.all([
+            fetchOne('timesheets'),
+            fetchOne('leave_requests'),
+            fetchOne('loan_requests')
+          ]);
+          setCounts({ timesheets: t, leave: l, loans: lo });
+        } catch (err) {
+          console.error("Failed to fetch sidebar counts:", err);
+        }
+      };
+
+      fetchCounts();
+      // Set up a refresh interval every 30 seconds for badges
+      const interval = setInterval(fetchCounts, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [isAdmin, isSuperAdmin, profile?.subsidiary_id]);
+
+  const menuItems: { id: string, label: string, icon: any, badge?: number }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'timesheets', label: 'Timesheets', icon: Clock },
     { id: 'leave', label: 'Leave', icon: Calendar },
@@ -32,8 +69,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdmin }) =
   ];
 
   if (isAdmin) {
-    menuItems.push({ id: 'employees', label: 'Staff Directory', icon: Users });
-    menuItems.push({ id: 'admin', label: 'Payroll Admin', icon: ShieldCheck });
+    menuItems.push({ id: 'employees', label: 'Staff Directory', icon: Users, badge: counts.timesheets + counts.leave });
+    menuItems.push({ id: 'admin', label: 'Payroll Admin', icon: ShieldCheck, badge: counts.timesheets + counts.leave + counts.loans });
     if (isSuperAdmin) {
       menuItems.push({ id: 'subsidiaries', label: 'Subsidiaries', icon: Building2 });
     }
@@ -43,18 +80,25 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdmin }) =
     <div className="w-64 bg-surface border-r border-border h-full flex flex-col shadow-2xl md:shadow-none">
       <nav className="flex-1 mt-6 px-3">
         <ul className="space-y-1">
-          {menuItems.map((item) => (
+          {menuItems.map((item: any) => (
             <li key={item.id}>
               <button
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md transition-all text-[13px] font-medium ${
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md transition-all text-[13px] font-medium ${
                   activeTab === item.id 
                     ? 'bg-green-50 text-mine-green border-l-4 border-mine-green rounded-l-none' 
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-l-4 border-transparent'
                 }`}
               >
-                <item.icon size={16} />
-                {item.label}
+                <div className="flex items-center gap-3">
+                  <item.icon size={16} />
+                  {item.label}
+                </div>
+                {item.badge > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center shadow-sm">
+                    {item.badge}
+                  </span>
+                )}
               </button>
             </li>
           ))}

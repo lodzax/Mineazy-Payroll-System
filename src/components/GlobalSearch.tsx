@@ -49,7 +49,7 @@ const GlobalSearch: React.FC<{ setActiveTab: (tab: string) => void }> = ({ setAc
       const dbTerm = `%${term}%`;
       
       const [userRes, timesheetRes, payslipRes] = await Promise.all([
-        supabase.from('users').select('*').ilike('full_name', dbTerm).limit(5),
+        supabase.from('profiles').select('*').ilike('full_name', dbTerm).limit(5),
         supabase.from('timesheets').select('*').ilike('description', dbTerm).limit(5), // Fallback to description if no user name in timesheet
         supabase.from('payslips').select('*').ilike('month_year', dbTerm).limit(5)
       ]);

@@ -1,6 +1,7 @@
 import React from 'react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { LogIn, Pickaxe, Mail, Lock, AlertCircle, RefreshCw } from 'lucide-react';
+import { toast, Toaster } from 'react-hot-toast';
 import { supabase } from './lib/supabase';
 import Dashboard from './components/Dashboard';
 import AdminDashboard from './components/AdminDashboard';
@@ -31,7 +32,7 @@ function LoginScreen() {
         redirectTo: `${window.location.origin}/reset-password`,
       });
       if (error) throw error;
-      alert(`Instruction node sent to ${email}. Please check your communication logs (inbox).`);
+      toast.success(`Instruction node sent to ${email}. Please check your communication logs (inbox).`);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -55,7 +56,7 @@ function LoginScreen() {
           }
         });
         if (signUpError) throw signUpError;
-        alert('Registration request sent. Please log in with your credentials.');
+        toast.success('Registration request sent. Please log in with your credentials.');
         setIsSignUp(false);
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -304,6 +305,7 @@ function MainApp() {
 export default function App() {
   return (
     <AuthProvider>
+      <Toaster position="top-right" />
       <MainApp />
     </AuthProvider>
   );

@@ -62,7 +62,7 @@ const PayrollReports: React.FC = () => {
       }
 
       // Fetch employees for display names
-      const { data: usersData, error: userError } = await supabase.from('users').select('id, full_name');
+      const { data: usersData, error: userError } = await supabase.from('profiles').select('id, full_name');
       if (userError) throw userError;
       const empMap = new Map((usersData || []).map(u => [u.id, u.full_name]));
 

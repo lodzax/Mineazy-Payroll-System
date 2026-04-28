@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { Building2, Plus, Edit2, Shield, Trash2, CheckCircle2, AlertCircle, X, Search, Globe, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -53,10 +54,10 @@ const SubsidiaryManagement: React.FC = () => {
             tax_number: form.tax_number,
             address: form.address,
             currency: form.currency,
-            // Add other fields if needed
           })
           .eq('id', editingSub.id);
         if (error) throw error;
+        toast.success("Subsidiary updated successfully");
       } else {
         const { error } = await supabase
           .from('subsidiaries')
@@ -67,11 +68,13 @@ const SubsidiaryManagement: React.FC = () => {
             currency: form.currency,
           });
         if (error) throw error;
+        toast.success("New subsidiary spawned successfully");
       }
       setIsModalOpen(false);
       fetchSubsidiaries();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      toast.error("Operation failed: " + err.message);
     }
   };
 

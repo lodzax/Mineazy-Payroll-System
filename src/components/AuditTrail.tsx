@@ -10,7 +10,9 @@ import {
   Briefcase, 
   FileText, 
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -25,6 +27,8 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
 
   useEffect(() => {
     const fetchLogs = async () => {
@@ -40,7 +44,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
           .from('audit_logs')
           .select('*')
           .order('timestamp', { ascending: false })
-          .limit(50);
+          .limit(200);
         
         if (!isSuperAdmin && subsidiaryId) {
           queryBuilder = queryBuilder.eq('subsidiary_id', subsidiaryId);
@@ -77,6 +81,16 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
     return matchesSearch && matchesCategory;
   });
 
+  const totalPages = Math.ceil(filteredLogs.length / pageSize);
+  const paginatedLogs = filteredLogs.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, categoryFilter]);
+
   const getCategoryIcon = (category: string) => {
     switch (category) {
       case 'payroll': return <TrendingUp size={14} className="text-mine-green" />;
@@ -106,7 +120,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
             <input 
               type="text" 
-              placeholder="Filter actions or users..."
+              placeholder="Filter actions or personnel..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium outline-none focus:ring-1 focus:ring-mine-green w-48 md:w-64"
@@ -157,7 +171,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
             </thead>
             <tbody className="divide-y divide-gray-50">
               <AnimatePresence mode='popLayout'>
-                {filteredLogs.map((log) => (
+                {paginatedLogs.map((log) => (
                   <motion.tr 
                     key={log.id} 
                     layout
@@ -211,6 +225,48 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
           </table>
         )}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 bg-gray-50/30">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+              Record {((currentPage - 1) * pageSize) + 1} - {Math.min(currentPage * pageSize, filteredLogs.length)} of {filteredLogs.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(currentPage - 1)}
+              className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <div className="flex gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setCurrentPage(p)}
+                  className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${currentPage === p ? 'bg-mine-green text-white' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-green hover:text-mine-green'}`}
+                >
+                  {p}
+                </button>
+              )).filter((_, idx) => {
+                 // Basic middle truncation if too many pages
+                 if (totalPages <= 7) return true;
+                 if (idx === 0 || idx === totalPages - 1) return true;
+                 return Math.abs(idx - (currentPage - 1)) <= 2;
+              })}
+            </div>
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(currentPage + 1)}
+              className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

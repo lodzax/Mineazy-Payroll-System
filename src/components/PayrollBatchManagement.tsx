@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { 
   Plus, 
@@ -89,9 +90,10 @@ const PayrollBatchManagement: React.FC = () => {
       });
 
       setIsModalOpen(false);
+      toast.success(`Successfully created ${form.group} batch for ${form.month}`);
       fetchBatches();
     } catch (err) {
-      alert("Failed to create batch: " + (err as any).message);
+      toast.error("Failed to create batch: " + (err as any).message);
     }
   };
 
@@ -99,9 +101,11 @@ const PayrollBatchManagement: React.FC = () => {
     if (!window.confirm("Are you sure? This will not delete payslips but will remove the batch grouping.")) return;
     try {
       await supabase.from('payroll_batches').delete().eq('id', id);
+      toast.success("Batch successfully deleted");
       fetchBatches();
     } catch (err) {
       console.error(err);
+      toast.error("Deletion failed");
     }
   };
 

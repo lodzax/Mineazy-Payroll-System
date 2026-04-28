@@ -103,7 +103,7 @@ const TimesheetForm: React.FC = () => {
 
     try {
       const month = date.slice(0, 7); // YYYY-MM
-      const { error } = await supabase.from('timesheets').insert({
+      const timesheetData = {
         user_id: user.id,
         subsidiary_id: profile?.subsidiary_id || null,
         submission_mode: submissionMode,
@@ -114,10 +114,18 @@ const TimesheetForm: React.FC = () => {
         overtime_hours: Number(overtime) || 0,
         status: 'pending',
         submitted_at: new Date().toISOString()
-      });
+      };
 
-      if (error) throw error;
-      setMessage({ type: 'success', text: `${submissionMode.charAt(0).toUpperCase() + submissionMode.slice(1)} timesheet submitted successfully` });
+      const { error } = await supabase.from('timesheets').insert(timesheetData);
+
+      if (error) {
+        console.error("Timesheet Submission Error:", error);
+        throw error;
+      }
+      setMessage({ type: 'success', text: `${submissionMode.charAt(0).toUpperCase() + submissionMode.slice(1)} timesheet submission logged in the ledger.` });
+      
+      // Auto-clear message after 5 seconds
+      setTimeout(() => setMessage(null), 5000);
       
       await logAction({
         action: 'Timesheet Submission',
@@ -371,9 +379,23 @@ const TimesheetForm: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold text-gray-900 italic serif uppercase tracking-tight">Performance Logging</h1>
-        <p className="text-xs text-gray-500 font-medium font-mono">Precision time tracking for the Mineazy ecosystem</p>
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 italic serif uppercase tracking-tight">Performance Logging</h1>
+          <p className="text-xs text-gray-500 font-medium font-mono">Precision time tracking for the Mineazy ecosystem</p>
+        </div>
+        <div className="flex gap-4">
+          <div className="bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm text-center min-w-[100px]">
+            <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Submissions</span>
+            <span className="text-xl font-black text-mine-green leading-none">{history.length}</span>
+          </div>
+          <div className="bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm text-center min-w-[100px]">
+            <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Total Hours</span>
+            <span className="text-xl font-black text-mine-gold leading-none">
+              {history.reduce((acc, curr) => acc + (Number(curr.hoursWorked) || 0), 0)}
+            </span>
+          </div>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
-import { Calendar, CheckCircle, Send, AlertCircle, MapPin, ChevronLeft, ChevronRight, Info, AlertTriangle } from 'lucide-react';
+import { Calendar, CheckCircle, Send, AlertCircle, MapPin, ChevronLeft, ChevronRight, Info, AlertTriangle, FileText } from 'lucide-react';
 
 const ZIM_PUBLIC_HOLIDAYS_2026 = [
   '2026-01-01', // New Year's Day
@@ -142,7 +142,7 @@ const LeaveForm: React.FC = () => {
     setMessage(null);
 
     try {
-      const { error } = await supabase.from('leave_requests').insert({
+      const leaveData = {
         user_id: user.id,
         subsidiary_id: profile?.subsidiary_id || null,
         type,
@@ -151,9 +151,17 @@ const LeaveForm: React.FC = () => {
         reason,
         status: 'pending',
         created_at: new Date().toISOString()
-      });
+      };
 
-      if (error) throw error;
+      const { error } = await supabase.from('leave_requests').insert(leaveData);
+
+      if (error) {
+        console.error("Leave Submission Error:", error);
+        throw error;
+      }
+
+      setMessage({ type: 'success', text: `Leave request for ${type} transmitted to HQ.` });
+      setTimeout(() => setMessage(null), 5000);
 
       await logAction({
         action: 'Leave Application Submitted',
@@ -182,14 +190,25 @@ const LeaveForm: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900 italic serif">Leave Management</h1>
           <p className="text-gray-500">Plan your time away from the mine operations</p>
         </div>
-        <div className="bg-orange-50 border border-orange-100 rounded-xl px-6 py-3 flex items-center gap-4">
-          <div className="text-right">
-            <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Available Balance</p>
-            <p className="text-xl font-black text-orange-600 font-mono">
-              {(profile?.leave_balance ?? profile?.annual_leave_balance ?? 0).toFixed(1)} Days
-            </p>
+        <div className="flex gap-4">
+          <div className="bg-white border border-gray-100 rounded-xl px-6 py-3 flex items-center gap-4 shadow-sm">
+            <div className="text-right">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Applications</p>
+              <p className="text-xl font-black text-mine-green font-mono">
+                {history.length}
+              </p>
+            </div>
+            <FileText className="text-mine-green/30" size={24} />
           </div>
-          <Calendar className="text-orange-300" size={24} />
+          <div className="bg-orange-50 border border-orange-100 rounded-xl px-6 py-3 flex items-center gap-4 shadow-sm">
+            <div className="text-right">
+              <p className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Available Balance</p>
+              <p className="text-xl font-black text-orange-600 font-mono">
+                {(profile?.annual_leave_balance ?? 0).toFixed(1)} Days
+              </p>
+            </div>
+            <Calendar className="text-orange-300" size={24} />
+          </div>
         </div>
       </header>
 
@@ -267,11 +286,11 @@ const LeaveForm: React.FC = () => {
                   </div>
                 </div>
 
-                {type === 'annual' && dateStats.workingDays > (profile?.leave_balance ?? profile?.annual_leave_balance ?? 0) && (
+                {type === 'annual' && dateStats.workingDays > (profile?.annual_leave_balance ?? 0) && (
                   <div className="bg-red-50 border border-red-100 p-2.5 rounded-lg flex items-start gap-2 animate-in fade-in slide-in-from-top-1">
                     <AlertCircle size={14} className="text-red-600 mt-0.5 shrink-0" />
                     <p className="text-[10px] font-bold text-red-700 leading-tight">
-                      Insufficient Balance. Requested working days ({dateStats.workingDays}) exceed your available vault credits ({(profile?.leave_balance ?? profile?.annual_leave_balance ?? 0).toFixed(1)}).
+                      Insufficient Balance. Requested working days ({dateStats.workingDays}) exceed your available vault credits ({(profile?.annual_leave_balance ?? 0).toFixed(1)}).
                     </p>
                   </div>
                 )}

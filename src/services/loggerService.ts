@@ -24,7 +24,7 @@ export async function logAction(entry: AuditLogEntry) {
     let subId = entry.subsidiaryId;
     if (!subId || subId === "") {
       const { data: profile } = await supabase
-        .from('users')
+        .from('profiles')
         .select('subsidiary_id')
         .eq('id', session.user.id)
         .maybeSingle();

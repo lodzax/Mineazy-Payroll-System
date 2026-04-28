@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { toast } from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { 
@@ -27,6 +28,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   const { user, profile } = useAuth();
   const [recentPayslip, setRecentPayslip] = useState<any>(null);
   const [activities, setActivities] = useState<any[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,24 +47,28 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
 
           if (payslipError) throw payslipError;
           if (payslipData) {
-            // Map Supabase snake_case to app camelCase if needed, but for now just use data
             setRecentPayslip({
               ...payslipData,
-              netPay: payslipData.net_pay // for compatibility with template
+              netPay: payslipData.net_pay
             });
           }
 
           // 2. Fetch Recent Activities (Leaves, Timesheets, Loans)
           const [leavesRes, timesheetsRes, loansRes] = await Promise.all([
-            supabase.from('leave_requests').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(3),
-            supabase.from('timesheets').select('*').eq('user_id', user.id).order('submitted_at', { ascending: false }).limit(3),
-            supabase.from('loan_requests').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(3)
+            supabase.from('leave_requests').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+            supabase.from('timesheets').select('*').eq('user_id', user.id).order('submitted_at', { ascending: false }),
+            supabase.from('loan_requests').select('*').eq('user_id', user.id).order('created_at', { ascending: false })
           ]);
 
+          const pendingLeaves = (leavesRes.data || []).filter(d => d.status === 'pending').length;
+          const pendingTimesheets = (timesheetsRes.data || []).filter(d => d.status === 'pending').length;
+          const pendingLoans = (loansRes.data || []).filter(d => d.status === 'pending').length;
+          setPendingCount(pendingLeaves + pendingTimesheets + pendingLoans);
+
           const combined = [
-            ...(leavesRes.data || []).map(d => ({ ...d, id: d.id, actType: 'Leave Application', status: d.status, createdAt: d.created_at })),
-            ...(timesheetsRes.data || []).map(d => ({ ...d, id: d.id, actType: 'Timesheet', status: d.status, createdAt: d.submitted_at })),
-            ...(loansRes.data || []).map(d => ({ ...d, id: d.id, actType: 'Loan Application', status: d.status, createdAt: d.created_at }))
+            ...(leavesRes.data || []).slice(0, 3).map(d => ({ ...d, id: d.id, actType: 'Leave Application', status: d.status, createdAt: d.created_at })),
+            ...(timesheetsRes.data || []).slice(0, 3).map(d => ({ ...d, id: d.id, actType: 'Timesheet', status: d.status, createdAt: d.submitted_at })),
+            ...(loansRes.data || []).slice(0, 3).map(d => ({ ...d, id: d.id, actType: 'Loan Application', status: d.status, createdAt: d.created_at }))
           ].sort((a: any, b: any) => {
             const dateA = new Date(a.createdAt).getTime() || 0;
             const dateB = new Date(b.createdAt).getTime() || 0;
@@ -95,7 +101,7 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
   return (
     <div className="flex flex-col gap-6">
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <div className="stat-box shadow-sm">
           <div className="stat-label uppercase tracking-widest font-black text-[10px]">Monthly Commitment</div>
           <div className="stat-val">160.00 Hours</div>
@@ -104,6 +110,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
         <div className="stat-box shadow-sm">
           <div className="stat-label uppercase tracking-widest font-black text-[10px]">Available Leave</div>
           <div className="stat-val text-blue-600 font-mono">{combinedStatsLeaveBalance.toFixed(1)} Days</div>
+        </div>
+
+        <div className="stat-box shadow-sm border-l-4 border-orange-400">
+          <div className="stat-label uppercase tracking-widest font-black text-[10px] text-orange-600">Pending Approvals</div>
+          <div className="stat-val text-orange-600 font-mono">{pendingCount} Items</div>
         </div>
 
         <div className="stat-box shadow-sm">
@@ -368,7 +379,7 @@ const PerformanceView: React.FC = () => {
       doc.save(`Personnel_Review_${(profile?.full_name || 'User').replace(/\s+/g, '_')}_${review.reviewDate}.pdf`);
     } catch (err) {
       console.error("PDF Fail:", err);
-      alert("Failed to generate PDF audit report.");
+      toast.error("Failed to generate PDF audit report.");
     }
   };
 

@@ -75,7 +75,6 @@ const PayslipList: React.FC = () => {
             nssaDeduction: p.nssa_deduction,
             loanDeductions: p.loan_deductions,
             totalDeductions: p.total_deductions,
-            leaveBalance: p.leave_balance,
             isPublished: p.is_published,
             generatedAt: p.generated_at
           })));
@@ -326,18 +325,6 @@ const PayslipList: React.FC = () => {
                           <div className="flex justify-between items-center pt-2 text-base font-black text-gray-900">
                              <span className="font-sans text-xs uppercase tracking-widest">Total Gross</span>
                              <span className="border-b-2 border-gray-900 pb-1">{selectedPayslip.grossPay.toFixed(2)}</span>
-                          </div>
-                        </div>
-                        
-                        {/* Leave Stats */}
-                        <div className="mt-12 bg-gray-50 rounded-2xl p-4 border border-gray-100 italic">
-                          <div className="flex items-center gap-2 mb-2">
-                             <ShieldCheck size={14} className="text-mine-green" />
-                             <h4 className="text-[9px] font-black text-gray-900 uppercase tracking-widest">Attendance Metric</h4>
-                          </div>
-                          <div className="flex justify-between items-end">
-                             <p className="text-[10px] text-gray-500 font-medium">Accumulated Leave Entitlement</p>
-                             <p className="text-xl font-black text-mine-green font-mono">{selectedPayslip.leaveBalance?.toFixed(1) || '0.0'} <span className="text-[8px] font-sans">Days</span></p>
                           </div>
                         </div>
                       </div>

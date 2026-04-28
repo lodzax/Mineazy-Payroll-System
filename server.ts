@@ -45,7 +45,7 @@ async function startServer() {
 
       // Check if requester is authorized
       const { data: profile } = await adminClient
-        .from("users")
+        .from("profiles")
         .select("role")
         .eq("id", requester.id)
         .single();
@@ -64,13 +64,20 @@ async function startServer() {
         return res.status(400).json({ error: "Email and Full Name are required." });
       }
 
+      // Clean metadata: replace empty strings with null for potential UUID fields
+      const sanitizedMetadata = { ...metadata };
+      if (sanitizedMetadata.subsidiary_id === "") sanitizedMetadata.subsidiary_id = null;
+
       // 1. Create Auth User
       let userId: string;
       const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
         email,
         password: password || "Mining2026!", // Strong default password
         email_confirm: true,
-        user_metadata: { full_name: fullName }
+        user_metadata: { 
+          full_name: fullName,
+          role: sanitizedMetadata.role || 'employee'
+        }
       });
 
       if (createError) {
@@ -90,13 +97,9 @@ async function startServer() {
         userId = authUser.user.id;
       }
 
-      // Clean metadata: replace empty strings with null for potential UUID fields
-      const sanitizedMetadata = { ...metadata };
-      if (sanitizedMetadata.subsidiary_id === "") sanitizedMetadata.subsidiary_id = null;
-
-      // 2. Setup Profile in public.users
+      // 2. Setup Profile in public.profiles
       const { error: profileError } = await adminClient
-        .from("users")
+        .from("profiles")
         .upsert({
           id: userId,
           email,
