@@ -54,7 +54,7 @@ const Pagination: React.FC<{
         <button
           disabled={currentPage === 1}
           onClick={() => onPageChange(currentPage - 1)}
-          className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+          className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-blue hover:text-mine-blue transition-all"
         >
           <ChevronLeft size={16} />
         </button>
@@ -63,7 +63,7 @@ const Pagination: React.FC<{
             <button
               key={p}
               onClick={() => onPageChange(p)}
-              className={`w-8 h-8 rounded-lg text-[10px] font-bold transition-all ${currentPage === p ? 'bg-mine-green text-white shadow-lg shadow-green-200' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-green hover:text-mine-green'}`}
+              className={`w-8 h-8 rounded-lg text-[10px] font-bold transition-all ${currentPage === p ? 'bg-mine-blue text-white shadow-lg shadow-blue-200' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-blue hover:text-mine-blue'}`}
             >
               {p}
             </button>
@@ -76,7 +76,7 @@ const Pagination: React.FC<{
         <button
           disabled={currentPage === totalPages}
           onClick={() => onPageChange(currentPage + 1)}
-          className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+          className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-blue hover:text-mine-blue transition-all"
         >
           <ChevronRight size={16} />
         </button>
@@ -103,7 +103,7 @@ const SearchableSelect: React.FC<{
       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">{label}</label>
       <div 
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full pl-3 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-green cursor-pointer flex items-center justify-between transition-all"
+        className="w-full pl-3 pr-8 py-2 bg-gray-50 border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-blue cursor-pointer flex items-center justify-between transition-all"
       >
         <div className="flex items-center gap-2 truncate">
           {icon}
@@ -147,7 +147,7 @@ const SearchableSelect: React.FC<{
                   <button 
                     key={opt}
                     onClick={() => { onChange(opt); setIsOpen(false); setSearch(''); }}
-                    className={`w-full text-left px-4 py-2 text-xs font-medium hover:bg-green-50 hover:text-mine-green transition-colors ${value === opt ? 'bg-green-50 text-mine-green' : 'text-gray-600'}`}
+                    className={`w-full text-left px-4 py-2 text-xs font-medium hover:bg-blue-50 hover:text-mine-blue transition-colors ${value === opt ? 'bg-blue-50 text-mine-blue' : 'text-gray-600'}`}
                   >
                     {opt}
                   </button>
@@ -164,7 +164,10 @@ const SearchableSelect: React.FC<{
   );
 };
 
-const EmployeeManagement: React.FC = () => {
+const EmployeeManagement: React.FC<{
+  preSelectedEmployee?: any;
+  onClearPreSelected?: () => void;
+}> = ({ preSelectedEmployee, onClearPreSelected }) => {
   const { user, profile, isSuperAdmin, isAdmin, loading: authLoading } = useAuth();
 
   const [activeView, setActiveView] = useState<'directory' | 'timesheets' | 'leave'>('directory');
@@ -218,6 +221,15 @@ const EmployeeManagement: React.FC = () => {
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmp, setEditingEmp] = useState<any | null>(null);
+
+  const [rejectionModal, setRejectionModal] = useState<{ 
+    collection: string, 
+    id: string, 
+    selectionSet?: Set<string>, 
+    selectionSetter?: React.Dispatch<React.SetStateAction<Set<string>>> 
+  } | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+
   const [form, setForm] = useState<any>({
     fullName: '',
     email: '',
@@ -332,6 +344,17 @@ const EmployeeManagement: React.FC = () => {
     }
   }, [authLoading, isSuperAdmin, profile?.subsidiary_id]);
 
+  useEffect(() => {
+    if (preSelectedEmployee) {
+      const emp = {
+        ...preSelectedEmployee,
+        uid: preSelectedEmployee.id || preSelectedEmployee.uid
+      };
+      fetchPii(emp);
+      if (onClearPreSelected) onClearPreSelected();
+    }
+  }, [preSelectedEmployee]);
+
   const fetchGlobalMetrics = async () => {
     try {
       // 1. Fetch total count of all profiles regardless of scoping
@@ -427,7 +450,7 @@ const EmployeeManagement: React.FC = () => {
 
       // 3. Fetch pending requests for the queues
       const fetchRequestCollection = async (table: string) => {
-        let q = supabase.from(table).select('*').in('status', ['pending', 'submitted']);
+        let q = supabase.from(table).select('*').in('status', ['pending', 'submitted', 'pending_approval']);
         
         // Scope by subsidiary ONLY for non-superadmins
         if (!effectivelySuperAdmin) {
@@ -490,7 +513,7 @@ const EmployeeManagement: React.FC = () => {
     return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1; // Inclusive
   };
 
-  const handleStatusUpdate = async (collectionName: string, id: string, status: string, skipRefresh = false) => {
+  const handleStatusUpdate = async (collectionName: string, id: string, status: string, skipRefresh = false, reason?: string) => {
     if (!skipRefresh) setProcessing(true);
     console.log(`Initiating status update: ${collectionName}.${id} -> ${status}`);
     try {
@@ -564,6 +587,9 @@ const EmployeeManagement: React.FC = () => {
 
       // Determine valid update fields based on collection schema
       const updatePayload: any = { status };
+      if (reason) {
+        updatePayload.rejection_reason = reason;
+      }
       
       // Tables that support reviewed_at/by tracking
       const trackingTables = ['timesheets', 'leave_requests', 'loan_requests', 'personnel_reviews'];
@@ -586,7 +612,7 @@ const EmployeeManagement: React.FC = () => {
       await logAction({
         action: 'Status Update',
         category: 'personnel',
-        details: `Updated ${collectionName} status for node ${id} to ${status}.`,
+        details: `Updated ${collectionName} status for node ${id} to ${status}.${reason ? ' Feedback provided.' : ''}`,
         entityId: id,
         userName: profile?.fullName || user?.displayName || user?.email || 'Admin',
         userEmail: user?.email || 'admin@system.local'
@@ -598,7 +624,7 @@ const EmployeeManagement: React.FC = () => {
         fetchData();
       }
     } catch (err: any) {
-      console.error("Transactional clear failed:", err);
+      console.error("Status update error:", err);
       if (!skipRefresh) {
         toast.error(`Action failed: ${err.message || 'Unknown protocol error'}`);
       }
@@ -696,7 +722,8 @@ const EmployeeManagement: React.FC = () => {
       } else {
         // Use our new server-side API for automatic account creation
         const session = await supabase.auth.getSession();
-        const response = await fetch('/api/admin/create-user', {
+        const apiUrl = `${window.location.origin}/api/admin/create-user`;
+        const response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -738,33 +765,67 @@ const EmployeeManagement: React.FC = () => {
       }
       setIsModalOpen(false);
       fetchData();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error('Operation failed. Check console for details.');
+      if (err.name === "TypeError" && err.message === "Failed to fetch") {
+        toast.error("Network failure: Backend node unreachable.");
+      } else {
+        toast.error(err.message || "Operation failed. Check console for details.");
+      }
     } finally {
       setProcessing(false);
     }
   };
 
   const handleDelete = async (uid: string) => {
-    if (!window.confirm("Are you sure? This will permanently remove the record.")) return;
+    if (!window.confirm("CRITICAL ACTION: This will PERMANENTLY remove this personnel record across all modules. If this person has payroll history, this action may fail due to integrity constraints. Use 'Deactivate' instead for historical preservation. Proceed with total deletion?")) return;
     setProcessing(true);
     try {
       const { error } = await supabase.from('profiles').delete().eq('id', uid);
       if (error) throw error;
 
       await logAction({
-        action: 'Personnel Deletion',
+        action: 'Personnel Permanent Deletion',
         category: 'personnel',
-        details: `Deleted employee record with UID ${uid}.`,
+        details: `Permanently deleted employee record with UID ${uid}.`,
         entityId: uid,
         userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
       fetchData();
-    } catch (err) {
+      toast.success('Personnel record purged from system.');
+    } catch (err: any) {
       console.error(err);
-      toast.error('Delete failed.');
+      toast.error(`Purge failed: ${err.message || 'Integrity constraint violation (records exist in other tables)'}`);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleDeactivate = async (uid: string) => {
+    if (!window.confirm("Offboard Employee: Mark this personnel record as 'Terminated'? This preserves historical data but disables access and payroll eligibility.")) return;
+    setProcessing(true);
+    try {
+      const { error } = await supabase.from('profiles').update({ 
+        status: 'terminated',
+        updated_at: new Date().toISOString()
+      }).eq('id', uid);
+      
+      if (error) throw error;
+
+      await logAction({
+        action: 'Personnel Deactivation',
+        category: 'personnel',
+        details: `Deactivated employee record with UID ${uid}. Status set to Terminated.`,
+        entityId: uid,
+        userName: profile?.fullName || user?.email,
+        userEmail: user?.email
+      });
+      fetchData();
+      toast.success('Personnel deactivation successful.');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Deactivation failure.');
     } finally {
       setProcessing(false);
     }
@@ -868,7 +929,7 @@ const EmployeeManagement: React.FC = () => {
   };
 
   const handleBulkDelete = async () => {
-    if (!window.confirm(`Are you sure you want to deactivate ${selectedEmps.size} employee(s)?`)) return;
+    if (!window.confirm(`CRITICAL WARNING: You are about to PERMANENTLY DELETE ${selectedEmps.size} employee record(s). This cannot be undone and may fail if these records have payroll/timesheet history. Proceed with purge?`)) return;
     setProcessing(true);
     try {
       const uids = Array.from(selectedEmps);
@@ -876,19 +937,50 @@ const EmployeeManagement: React.FC = () => {
       if (error) throw error;
       
       await logAction({
-        action: 'Bulk Personnel Deactivation',
+        action: 'Bulk Personnel Purge',
         category: 'personnel',
-        details: `Deactivated ${uids.length} employee records in bulk.`,
+        details: `Permanently purged ${uids.length} employee records in bulk.`,
         userName: profile?.fullName || user?.email,
         userEmail: user?.email
       });
 
       setSelectedEmps(new Set());
       fetchData();
-      toast.success("Employees deactivated successfully.");
-    } catch (err) {
+      toast.success("Nodes purged from ledger.");
+    } catch (err: any) {
       console.error(err);
-      toast.error('Bulk delete failed');
+      toast.error(`Bulk purge failed: ${err.message || 'Node integrity violation detected.'}`);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleBulkDeactivate = async () => {
+    if (!window.confirm(`Initiate Offboarding: Mark ${selectedEmps.size} employee(s) as 'Terminated'? This disables payroll but keeps historical entries.`)) return;
+    setProcessing(true);
+    try {
+      const uids = Array.from(selectedEmps);
+      const { error } = await supabase.from('profiles').update({ 
+        status: 'terminated',
+        updated_at: new Date().toISOString()
+      }).in('id', uids);
+      
+      if (error) throw error;
+      
+      await logAction({
+        action: 'Bulk Personnel Deactivation',
+        category: 'personnel',
+        details: `Deactivated ${uids.length} employee records in bulk. Status: Terminated.`,
+        userName: profile?.fullName || user?.email,
+        userEmail: user?.email
+      });
+
+      setSelectedEmps(new Set());
+      fetchData();
+      toast.success("Personnel deactivated successfully.");
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Bulk deactivation failure.');
     } finally {
       setProcessing(false);
     }
@@ -1127,13 +1219,13 @@ const EmployeeManagement: React.FC = () => {
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
           <button 
             onClick={() => setActiveView('directory')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeView === 'directory' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeView === 'directory' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
             Staff Directory
           </button>
           <button 
             onClick={() => setActiveView('timesheets')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeView === 'timesheets' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeView === 'timesheets' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
             Timesheet Queue
             {timesheets.length > 0 && (
@@ -1144,7 +1236,7 @@ const EmployeeManagement: React.FC = () => {
           </button>
           <button 
             onClick={() => setActiveView('leave')}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeView === 'leave' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${activeView === 'leave' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
             Leave Requests
             {leaveRequests.length > 0 && (
@@ -1171,12 +1263,12 @@ const EmployeeManagement: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-mine-green transition-all">
+        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center justify-between group hover:border-mine-blue transition-all">
           <div className="space-y-1">
             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Global Personnel</p>
             <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">{metrics.globalStaff}</p>
           </div>
-          <div className="w-12 h-12 bg-mine-green/5 rounded-xl flex items-center justify-center text-mine-green group-hover:bg-mine-green group-hover:text-white transition-all">
+          <div className="w-12 h-12 bg-mine-blue/5 rounded-xl flex items-center justify-center text-mine-blue group-hover:bg-mine-blue group-hover:text-white transition-all">
             <Users size={24} />
           </div>
         </div>
@@ -1245,7 +1337,7 @@ const EmployeeManagement: React.FC = () => {
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   placeholder={isAdmin ? "Name, status, or subsidiary..." : "Employee name..."}
-                  className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-green h-10 shadow-sm"
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-blue h-10 shadow-sm"
                 />
               </div>
             </div>
@@ -1266,7 +1358,7 @@ const EmployeeManagement: React.FC = () => {
               <select 
                 value={roleFilter}
                 onChange={(e) => setRoleFilter(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-green h-10 font-bold uppercase tracking-tight shadow-sm"
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-blue h-10 font-bold uppercase tracking-tight shadow-sm"
               >
                 <option value="">All Roles</option>
                 <option value="employee">Staff (General)</option>
@@ -1300,7 +1392,7 @@ const EmployeeManagement: React.FC = () => {
               <select 
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-green h-10 font-bold uppercase tracking-tight shadow-sm"
+                className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md text-xs outline-none focus:ring-1 focus:ring-mine-blue h-10 font-bold uppercase tracking-tight shadow-sm"
               >
                 <option value="">All Statuses</option>
                 <option value="active">Active</option>
@@ -1316,7 +1408,7 @@ const EmployeeManagement: React.FC = () => {
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
-                className="bg-mine-green p-4 mb-4 rounded-xl shadow-lg border border-white/20 flex flex-wrap items-center justify-between gap-4 text-white"
+                className="bg-mine-blue p-4 mb-4 rounded-xl shadow-lg border border-white/20 flex flex-wrap items-center justify-between gap-4 text-white"
               >
                 <div className="flex items-center gap-3">
                   <div className="bg-white/20 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border border-white/30">
@@ -1332,10 +1424,16 @@ const EmployeeManagement: React.FC = () => {
                     <Users size={14} /> Assign Dept
                   </button>
                   <button 
-                    onClick={handleBulkDelete}
-                    className="px-4 py-2 bg-red-500/20 hover:bg-red-500/40 border border-red-500/30 rounded-md text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+                    onClick={handleBulkDeactivate}
+                    className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-md text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
                   >
-                    <Trash2 size={14} /> Deactivate
+                    <Star size={14} className="text-amber-300" /> Deactivate
+                  </button>
+                  <button 
+                    onClick={handleBulkDelete}
+                    className="px-4 py-2 bg-red-500/20 hover:bg-red-500/40 border border-red-500/30 rounded-md text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 font-black"
+                  >
+                    <Trash2 size={14} /> Purge/Delete
                   </button>
                   <button 
                     onClick={() => setSelectedEmps(new Set())}
@@ -1355,7 +1453,7 @@ const EmployeeManagement: React.FC = () => {
                   <th className="px-6 py-4 w-10">
                     <input 
                       type="checkbox" 
-                      className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                      className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                       checked={filtered.length > 0 && selectedEmps.size === filtered.length}
                       onChange={toggleSelectAllEmps}
                     />
@@ -1371,19 +1469,19 @@ const EmployeeManagement: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE).map((emp) => (
-                  <tr key={emp.uid} className={`hover:bg-gray-50/50 transition-colors group ${selectedEmps.has(emp.uid) ? 'bg-green-50/50' : ''}`}>
+                  <tr key={emp.uid} className={`hover:bg-gray-50/50 transition-colors group ${selectedEmps.has(emp.uid) ? 'bg-blue-50/50' : ''}`}>
                     <td className="px-6 py-4">
                       <input 
                         type="checkbox" 
-                        className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                        className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                         checked={selectedEmps.has(emp.uid)}
                         onChange={() => toggleEmpSelection(emp.uid)}
                       />
                     </td>
                     <td className="px-6 py-4 cursor-pointer" onClick={() => fetchPii(emp)}>
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-mine-green/10 flex items-center justify-center font-bold text-mine-green text-xs border border-mine-green/20">
-                          {emp.fullName.charAt(0)}
+                        <div className="w-8 h-8 rounded-full bg-mine-blue/10 flex items-center justify-center font-bold text-mine-blue text-xs border border-mine-blue/20">
+                          {(emp.fullName || '?').charAt(0)}
                         </div>
                         <div>
                           <p className="font-bold text-gray-900 text-sm leading-tight">{emp.fullName}</p>
@@ -1402,7 +1500,7 @@ const EmployeeManagement: React.FC = () => {
                       <span className={`badge border ${
                         emp.status === 'suspended' ? 'bg-orange-50 text-orange-700 border-orange-100' : 
                         emp.status === 'terminated' ? 'bg-red-50 text-red-700 border-red-100' : 
-                        'bg-green-50 text-green-700 border-green-100'
+                        'bg-blue-50 text-blue-700 border-blue-100'
                       }`}>
                         {emp.status || 'active'}
                       </span>
@@ -1418,7 +1516,7 @@ const EmployeeManagement: React.FC = () => {
                         {emp.role}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right font-mono font-bold text-mine-green text-sm">
+                    <td className="px-6 py-4 text-right font-mono font-bold text-mine-blue text-sm">
                       {emp.currency} {emp.baseSalary?.toLocaleString()}
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -1432,7 +1530,7 @@ const EmployeeManagement: React.FC = () => {
                         </button>
                         <button 
                           onClick={() => fetchPii(emp, 'banking')}
-                          className="p-2 text-gray-400 hover:text-mine-green hover:bg-green-50 rounded-lg transition-all"
+                          className="p-2 text-gray-400 hover:text-mine-blue hover:bg-blue-50 rounded-lg transition-all"
                           title="Financial Nexus"
                         >
                           <Wallet size={16} />
@@ -1457,7 +1555,7 @@ const EmployeeManagement: React.FC = () => {
                             }); 
                             setIsModalOpen(true); 
                           }}
-                          className="p-2 text-gray-400 hover:text-mine-green hover:bg-green-50 rounded-lg transition-all"
+                          className="p-2 text-gray-400 hover:text-mine-blue hover:bg-blue-50 rounded-lg transition-all"
                           title="Edit Profile"
                         >
                           <Edit2 size={16} />
@@ -1470,9 +1568,16 @@ const EmployeeManagement: React.FC = () => {
                           <ClipboardList size={16} />
                         </button>
                         <button 
+                          onClick={() => handleDeactivate(emp.uid)}
+                          className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all"
+                          title="Deactivate / Offboard"
+                        >
+                          <Star size={16} />
+                        </button>
+                        <button 
                           onClick={() => handleDelete(emp.uid)}
-                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                          title="Offboard Staff"
+                          className="p-2 text-gray-400 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all"
+                          title="Purge Record (Permanent)"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -1511,7 +1616,7 @@ const EmployeeManagement: React.FC = () => {
                 <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                      <ClipboardList size={16} className="text-mine-green" /> Timesheet Approval Queue
+                      <ClipboardList size={16} className="text-mine-blue" /> Timesheet Approval Queue
                     </h3>
                     <div className="flex items-center gap-2">
                       <span className="badge bg-white text-gray-500 border border-gray-100 font-mono text-[9px] uppercase font-bold">
@@ -1526,7 +1631,7 @@ const EmployeeManagement: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <button 
                         onClick={() => handleBulkStatusUpdate('timesheets', selectedTimesheets, setSelectedTimesheets, 'approved')}
-                        className="btn bg-green-600 hover:bg-green-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
+                        className="btn bg-blue-600 hover:bg-blue-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
                       >
                         <Check size={12} /> Bulk Approve ({selectedTimesheets.size})
                       </button>
@@ -1546,7 +1651,7 @@ const EmployeeManagement: React.FC = () => {
                         <th className="px-6 py-4 w-10">
                           <input 
                             type="checkbox" 
-                            className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                            className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                             checked={timesheets.length > 0 && selectedTimesheets.size === timesheets.length}
                             onChange={() => toggleSelectAllItems(timesheets, selectedTimesheets, setSelectedTimesheets)}
                           />
@@ -1566,7 +1671,7 @@ const EmployeeManagement: React.FC = () => {
                             <td className="px-6 py-4">
                               <input 
                                 type="checkbox" 
-                                className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                                className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                                 checked={selectedTimesheets.has(t.id)}
                                 onChange={() => toggleSelection(t.id, selectedTimesheets, setSelectedTimesheets)}
                               />
@@ -1579,12 +1684,12 @@ const EmployeeManagement: React.FC = () => {
                               {t.submission_mode === 'monthly' ? t.month : 'Weekly / Custom'}
                             </td>
                             <td className="px-6 py-4 text-right font-black text-slate-900">{t.hoursWorked}h</td>
-                            <td className="px-6 py-4 text-right font-black text-mine-green">{t.overtimeHours}h</td>
+                            <td className="px-6 py-4 text-right font-black text-mine-blue">{t.overtimeHours}h</td>
                             <td className="px-6 py-4 text-right">
                               <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button 
                                   onClick={() => handleStatusUpdate('timesheets', t.id, 'approved')}
-                                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
                                   title="Approve Node"
                                 >
                                   <Check size={16} />
@@ -1629,22 +1734,22 @@ const EmployeeManagement: React.FC = () => {
                 <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2">
-                      <Calendar size={16} className="text-mine-green" /> Leave Application Queue
+                      <Calendar size={16} className="text-mine-blue" /> Leave Application Queue
                     </h3>
                     <span className="badge bg-white text-orange-600 border border-orange-100 font-mono text-[9px] uppercase font-bold">
-                      {leaveRequests.length} Applications
+                      {leaveRequests.length} Awaiting Approval
                     </span>
                   </div>
                   {selectedLeaveRequests.size > 0 && (
                     <div className="flex items-center gap-2">
                       <button 
                         onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'approved')}
-                        className="btn bg-green-600 hover:bg-green-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
+                        className="btn bg-blue-600 hover:bg-blue-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
                       >
                         <Check size={12} /> Bulk Approve ({selectedLeaveRequests.size})
                       </button>
                       <button 
-                        onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'rejected')}
+                        onClick={() => setRejectionModal({ collection: 'leave_requests', id: '', selectionSet: selectedLeaveRequests, selectionSetter: setSelectedLeaveRequests })}
                         className="btn bg-red-600 hover:bg-red-700 text-white !text-[9px] !py-1 px-3 flex items-center gap-2 border-none"
                       >
                         <X size={12} /> Bulk Reject
@@ -1659,7 +1764,7 @@ const EmployeeManagement: React.FC = () => {
                         <th className="px-6 py-4 w-10">
                           <input 
                             type="checkbox" 
-                            className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                            className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                             checked={leaveRequests.length > 0 && selectedLeaveRequests.size === leaveRequests.length}
                             onChange={() => toggleSelectAllItems(leaveRequests, selectedLeaveRequests, setSelectedLeaveRequests)}
                           />
@@ -1680,7 +1785,7 @@ const EmployeeManagement: React.FC = () => {
                             <td className="px-6 py-4">
                               <input 
                                 type="checkbox" 
-                                className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                                className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                                 checked={selectedLeaveRequests.has(lv.id)}
                                 onChange={() => toggleSelection(lv.id, selectedLeaveRequests, setSelectedLeaveRequests)}
                               />
@@ -1701,13 +1806,13 @@ const EmployeeManagement: React.FC = () => {
                               <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button 
                                   onClick={() => handleStatusUpdate('leave_requests', lv.id, 'approved')}
-                                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
                                   title="Approve Node"
                                 >
                                   <Check size={16} />
                                 </button>
                                 <button 
-                                  onClick={() => handleStatusUpdate('leave_requests', lv.id, 'rejected')}
+                                  onClick={() => setRejectionModal({ collection: 'leave_requests', id: lv.id })}
                                   className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
                                   title="Reject Node"
                                 >
@@ -1752,7 +1857,7 @@ const EmployeeManagement: React.FC = () => {
               className="bg-white w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden"
             >
               <div className="bg-gray-50 p-4 px-6 border-b flex justify-between items-center">
-                <h3 className="font-extrabold text-mine-green uppercase text-xs tracking-widest flex items-center gap-2">
+                <h3 className="font-extrabold text-mine-blue uppercase text-xs tracking-widest flex items-center gap-2">
                   <Users size={16} /> {editingEmp ? 'Update Record' : 'Site Recruitment'}
                 </h3>
                 <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-gray-400" /></button>
@@ -1763,29 +1868,29 @@ const EmployeeManagement: React.FC = () => {
                   <div className="space-y-6">
                     <div className="space-y-1">
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Full Name</label>
-                      <input required value={form.fullName} onChange={(e) => setForm({...form, fullName: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                      <input required value={form.fullName} onChange={(e) => setForm({...form, fullName: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue" />
                     </div>
 
                     {!editingEmp && (
                       <div className="space-y-6">
                         <div className="space-y-1">
                           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Email Address</label>
-                          <input required type="email" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} placeholder="employee@mineazy.com" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                          <input required type="email" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} placeholder="employee@mineazy.com" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue" />
                         </div>
-                        <div className="bg-green-50/50 p-4 rounded-xl border border-green-100/50">
-                          <p className="text-[9px] font-black text-green-700 uppercase tracking-widest flex items-center gap-2 mb-3">
+                        <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
+                          <p className="text-[9px] font-black text-blue-700 uppercase tracking-widest flex items-center gap-2 mb-3">
                             <ShieldCheck size={12} /> Account Provisioning
                           </p>
                           <div className="space-y-1">
-                            <label className="text-[10px] font-black text-green-600/60 uppercase tracking-widest">Initial Access Password</label>
+                            <label className="text-[10px] font-black text-blue-600/60 uppercase tracking-widest">Initial Access Password</label>
                             <input 
                               required 
                               type="text"
                               value={form.password} 
                               onChange={(e) => setForm({...form, password: e.target.value})} 
-                              className="w-full bg-white border border-green-200 rounded p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-mine-green" 
+                              className="w-full bg-white border border-blue-200 rounded p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-mine-blue" 
                             />
-                            <p className="text-[8px] text-green-600/40 italic mt-1">New personnel will use this to sign in to their node.</p>
+                            <p className="text-[8px] text-blue-600/40 italic mt-1">New personnel will use this to sign in to their node.</p>
                           </div>
                         </div>
                       </div>
@@ -1794,17 +1899,17 @@ const EmployeeManagement: React.FC = () => {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Department</label>
-                        <input value={form.department} onChange={(e) => setForm({...form, department: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                        <input value={form.department} onChange={(e) => setForm({...form, department: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Job Title</label>
-                        <input value={form.jobTitle} onChange={(e) => setForm({...form, jobTitle: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                        <input value={form.jobTitle} onChange={(e) => setForm({...form, jobTitle: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue" />
                       </div>
                     </div>
 
                     <div className="space-y-1">
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Branch Location</label>
-                      <input value={form.branch} onChange={(e) => setForm({...form, branch: e.target.value})} placeholder="e.g. Harare North, Bulawayo Hub" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" />
+                      <input value={form.branch} onChange={(e) => setForm({...form, branch: e.target.value})} placeholder="e.g. Harare North, Bulawayo Hub" className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue" />
                     </div>
                   </div>
 
@@ -1813,11 +1918,11 @@ const EmployeeManagement: React.FC = () => {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Base Salary</label>
-                        <input type="number" required value={form.baseSalary} onChange={(e) => setForm({...form, baseSalary: Number(e.target.value)})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-mono" />
+                        <input type="number" required value={form.baseSalary} onChange={(e) => setForm({...form, baseSalary: Number(e.target.value)})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-mono" />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Currency</label>
-                        <select value={form.currency} onChange={(e) => setForm({...form, currency: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
+                        <select value={form.currency} onChange={(e) => setForm({...form, currency: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold">
                           <option value="USD">USD</option>
                           <option value="ZWG">ZWG</option>
                         </select>
@@ -1830,7 +1935,7 @@ const EmployeeManagement: React.FC = () => {
                         <select 
                           value={form.subsidiaryId} 
                           onChange={(e) => setForm({...form, subsidiaryId: e.target.value})} 
-                          className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold"
+                          className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold"
                         >
                           <option value="">Global/Holding</option>
                           {subsidiaries.map(s => (
@@ -1847,7 +1952,7 @@ const EmployeeManagement: React.FC = () => {
                           value={form.role} 
                           onChange={(e) => setForm({...form, role: e.target.value})} 
                           disabled={!isAdmin}
-                          className={`w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold ${!isAdmin ? 'opacity-50 cursor-not-allowed text-gray-400' : ''}`}
+                          className={`w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold ${!isAdmin ? 'opacity-50 cursor-not-allowed text-gray-400' : ''}`}
                         >
                           <option value="employee">Staff (General Access)</option>
                           <option value="contractor">Contractor (Limited Access)</option>
@@ -1860,7 +1965,7 @@ const EmployeeManagement: React.FC = () => {
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Operational Status</label>
-                        <select value={form.status} onChange={(e) => setForm({...form, status: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
+                        <select value={form.status} onChange={(e) => setForm({...form, status: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold">
                           <option value="active">Active</option>
                           <option value="suspended">Suspended</option>
                           <option value="terminated">Terminated</option>
@@ -1875,12 +1980,12 @@ const EmployeeManagement: React.FC = () => {
                           type="number" 
                           value={form.annualLeaveBalance} 
                           onChange={(e) => setForm({...form, annualLeaveBalance: e.target.value})} 
-                          className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold" 
+                          className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold" 
                         />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payroll Run Group</label>
-                        <select value={form.payrollGroup} onChange={(e) => setForm({...form, payrollGroup: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold">
+                        <select value={form.payrollGroup} onChange={(e) => setForm({...form, payrollGroup: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold">
                           <option value="General">General Staff Payroll</option>
                           <option value="Management">Management Payroll</option>
                         </select>
@@ -1909,7 +2014,7 @@ const EmployeeManagement: React.FC = () => {
               <div className="bg-slate-900 px-8 py-6 text-white flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-4">
                   <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center text-mine-gold border border-white/20 font-black text-2xl italic">
-                    {selectedUser.fullName.charAt(0)}
+                    {(selectedUser.fullName || '?').charAt(0)}
                   </div>
                   <div>
                     <h2 className="text-2xl font-bold tracking-tight leading-none mb-1">{selectedUser.fullName}</h2>
@@ -1955,7 +2060,7 @@ const EmployeeManagement: React.FC = () => {
                     onClick={() => setActiveDetailTab(tab.id as any)}
                     className={`flex items-center gap-2 py-4 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all relative ${
                       activeDetailTab === tab.id 
-                        ? 'text-mine-green border-mine-green' 
+                        ? 'text-mine-blue border-mine-blue' 
                         : 'text-gray-400 border-transparent hover:text-gray-600'
                     }`}
                   >
@@ -1969,7 +2074,7 @@ const EmployeeManagement: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-8">
                 {fetchingPii || fetchingReviews ? (
                   <div className="flex flex-col items-center justify-center py-24 gap-4">
-                    <RefreshCw className="animate-spin text-mine-green opacity-20" size={64} />
+                    <RefreshCw className="animate-spin text-mine-blue opacity-20" size={64} />
                     <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono animate-pulse">Syncing Encrypted Data Node...</p>
                   </div>
                 ) : activeDetailTab === 'pii' ? (
@@ -1983,7 +2088,7 @@ const EmployeeManagement: React.FC = () => {
                               value={piiForm.phone}
                               onChange={(e) => setPiiForm({...piiForm, phone: e.target.value})}
                               placeholder="+263..."
-                              className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm outline-none focus:ring-1 focus:ring-mine-green transition-all"
+                              className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue transition-all"
                             />
                           </div>
                           <div className="space-y-2">
@@ -1992,7 +2097,7 @@ const EmployeeManagement: React.FC = () => {
                               value={piiForm.nationalId}
                               onChange={(e) => setPiiForm({...piiForm, nationalId: e.target.value})}
                               placeholder="00-000000X00"
-                              className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-mono uppercase tracking-tighter"
+                              className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-mono uppercase tracking-tighter"
                             />
                           </div>
                         </div>
@@ -2003,7 +2108,7 @@ const EmployeeManagement: React.FC = () => {
                             value={piiForm.address}
                             onChange={(e) => setPiiForm({...piiForm, address: e.target.value})}
                             rows={3}
-                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm outline-none focus:ring-1 focus:ring-mine-green leading-relaxed"
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm outline-none focus:ring-1 focus:ring-mine-blue leading-relaxed"
                           />
                         </div>
 
@@ -2047,7 +2152,7 @@ const EmployeeManagement: React.FC = () => {
                           <input 
                             value={piiForm.medicalAidNo}
                             onChange={(e) => setPiiForm({...piiForm, medicalAidNo: e.target.value})}
-                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-mono uppercase tracking-tighter"
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl p-3.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-mono uppercase tracking-tighter"
                           />
                         </div>
 
@@ -2065,32 +2170,32 @@ const EmployeeManagement: React.FC = () => {
                         <div className="grid grid-cols-2 gap-12 mb-12">
                           <div className="space-y-6">
                             <div className="space-y-1">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><Mail size={12} className="text-mine-green" /> Official Email Node</p>
-                              <p className="text-sm font-semibold text-gray-900 border-l-2 border-mine-green pl-3 py-1 bg-gray-50/50">{selectedUser.email}</p>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><Mail size={12} className="text-mine-blue" /> Official Email Node</p>
+                              <p className="text-sm font-semibold text-gray-900 border-l-2 border-mine-blue pl-3 py-1 bg-gray-50/50">{selectedUser.email}</p>
                             </div>
                             <div className="space-y-1">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><Phone size={12} className="text-mine-green" /> Direct Contact Line</p>
-                              <p className="text-sm font-semibold text-gray-900 border-l-2 border-mine-green pl-3 py-1 bg-gray-50/50">{userPii?.phone || 'Not Logged'}</p>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><Phone size={12} className="text-mine-blue" /> Direct Contact Line</p>
+                              <p className="text-sm font-semibold text-gray-900 border-l-2 border-mine-blue pl-3 py-1 bg-gray-50/50">{userPii?.phone || 'Not Logged'}</p>
                             </div>
                             <div className="space-y-1">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><RefreshCw size={12} className="text-mine-green" /> Registration Timestamp</p>
-                              <p className="text-sm font-semibold text-gray-900 border-l-2 border-mine-green pl-3 py-1 bg-gray-50/50 font-mono uppercase">
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><RefreshCw size={12} className="text-mine-blue" /> Registration Timestamp</p>
+                              <p className="text-sm font-semibold text-gray-900 border-l-2 border-mine-blue pl-3 py-1 bg-gray-50/50 font-mono uppercase">
                                 {selectedUser.createdAt ? new Date(selectedUser.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : 'Historical Record'}
                               </p>
                             </div>
                           </div>
                           <div className="space-y-6">
                              <div className="space-y-1">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><MapPin size={12} className="text-mine-green" /> Deployment Base (Address)</p>
-                              <p className="text-sm font-semibold text-gray-900 leading-relaxed border-l-2 border-mine-green pl-3 py-1 bg-gray-50/50">{userPii?.address || 'Restricted Access'}</p>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><MapPin size={12} className="text-mine-blue" /> Deployment Base (Address)</p>
+                              <p className="text-sm font-semibold text-gray-900 leading-relaxed border-l-2 border-mine-blue pl-3 py-1 bg-gray-50/50">{userPii?.address || 'Restricted Access'}</p>
                             </div>
                             <div className="space-y-1">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><Fingerprint size={12} className="text-mine-green" /> National Identity</p>
-                              <p className="text-sm font-semibold text-gray-900 font-mono tracking-tighter border-l-2 border-mine-green pl-3 py-1 bg-gray-50/50 uppercase">{userPii?.nationalId || 'PENDING VERIFICATION'}</p>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><Fingerprint size={12} className="text-mine-blue" /> National Identity</p>
+                              <p className="text-sm font-semibold text-gray-900 font-mono tracking-tighter border-l-2 border-mine-blue pl-3 py-1 bg-gray-50/50 uppercase">{userPii?.nationalId || 'PENDING VERIFICATION'}</p>
                             </div>
                             <div className="space-y-1">
-                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><CheckCircle2 size={12} className="text-mine-green" /> Medical Aid Node</p>
-                              <p className="text-sm font-semibold text-gray-900 font-mono tracking-tighter border-l-2 border-mine-green pl-3 py-1 bg-gray-50/50 uppercase">{userPii?.medicalAidNo || '---'}</p>
+                              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2"><CheckCircle2 size={12} className="text-mine-blue" /> Medical Aid Node</p>
+                              <p className="text-sm font-semibold text-gray-900 font-mono tracking-tighter border-l-2 border-mine-blue pl-3 py-1 bg-gray-50/50 uppercase">{userPii?.medicalAidNo || '---'}</p>
                             </div>
                           </div>
                         </div>
@@ -2265,27 +2370,27 @@ const EmployeeManagement: React.FC = () => {
                 ) : (
                   <div className="animate-in fade-in slide-in-from-left-4 duration-300">
                     {!isRecordingReview ? (
-                      <div className="space-y-10">
-                        <div className="flex items-center justify-between border-b border-gray-100 pb-6">
-                          <div>
-                            <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                               <Target className="text-mine-green" size={20} /> Performance Evaluation Matrix
-                            </h3>
-                            <p className="text-xs text-gray-500 mt-1">Personnel operational efficiency and developmental roadmap.</p>
+                        <div className="space-y-10">
+                          <div className="flex items-center justify-between border-b border-gray-100 pb-6">
+                            <div>
+                              <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                                 <Target className="text-mine-blue" size={20} /> Performance Evaluation Matrix
+                              </h3>
+                              <p className="text-xs text-gray-500 mt-1">Personnel operational efficiency and developmental roadmap.</p>
+                            </div>
+                            <button 
+                              onClick={() => setIsRecordingReview(true)}
+                              className="btn btn-primary !py-2.5 !px-6 !text-[10px] flex items-center gap-2 uppercase tracking-widest"
+                            >
+                              <Plus size={14} /> Initialize Evaluation
+                            </button>
                           </div>
-                          <button 
-                            onClick={() => setIsRecordingReview(true)}
-                            className="btn btn-primary !py-2.5 !px-6 !text-[10px] flex items-center gap-2 uppercase tracking-widest"
-                          >
-                            <Plus size={14} /> Initialize Evaluation
-                          </button>
-                        </div>
 
-                        {fetchingReviews ? (
-                          <div className="flex flex-col items-center justify-center py-24 gap-4">
-                            <RefreshCw className="animate-spin text-mine-green opacity-20" size={48} />
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono">Querying Review Node...</p>
-                          </div>
+                          {fetchingReviews ? (
+                            <div className="flex flex-col items-center justify-center py-24 gap-4">
+                              <RefreshCw className="animate-spin text-mine-blue opacity-20" size={48} />
+                              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono">Querying Review Node...</p>
+                            </div>
                         ) : reviews.length === 0 ? (
                           <div className="text-center py-24 bg-gray-50/50 rounded-3xl border-2 border-dashed border-gray-100 space-y-6 max-w-lg mx-auto">
                             <div className="w-20 h-20 bg-white rounded-3xl flex items-center justify-center mx-auto text-gray-200 shadow-sm border border-gray-100 rotate-12">
@@ -2305,7 +2410,7 @@ const EmployeeManagement: React.FC = () => {
                                   <div className="absolute top-0 right-0 w-24 h-24 bg-gray-50 -mr-12 -mt-12 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
                                   <div className="flex justify-between items-start mb-8 relative z-10">
                                     <div className="flex items-center gap-4">
-                                      <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center group-hover:bg-mine-green group-hover:text-white transition-colors border border-gray-100">
+                                      <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center group-hover:bg-mine-blue group-hover:text-white transition-colors border border-gray-100">
                                         <Calendar size={22} />
                                       </div>
                                       <div>
@@ -2328,7 +2433,7 @@ const EmployeeManagement: React.FC = () => {
                                       {rev.status === 'completed' && (
                                         <button 
                                           onClick={() => downloadReviewPDF(rev)}
-                                          className="flex items-center gap-1 text-[10px] font-black text-mine-green uppercase tracking-widest hover:underline"
+                                          className="flex items-center gap-1 text-[10px] font-black text-mine-blue uppercase tracking-widest hover:underline"
                                         >
                                           <FileDown size={12} /> Audit PDF
                                         </button>
@@ -2338,12 +2443,12 @@ const EmployeeManagement: React.FC = () => {
                                   
                                   <div className="space-y-6 flex-1 relative z-10">
                                     <div>
-                                      <p className="text-[9px] font-black text-gray-400 uppercase tracking-[3px] mb-2 flex items-center gap-1.5"><MessageSquare size={10} className="text-mine-green" /> Feedback Log</p>
+                                      <p className="text-[9px] font-black text-gray-400 uppercase tracking-[3px] mb-2 flex items-center gap-1.5"><MessageSquare size={10} className="text-mine-blue" /> Feedback Log</p>
                                       <p className="text-xs text-gray-600 leading-relaxed font-medium bg-gray-50/50 p-4 rounded-xl italic">{rev.feedback || 'No transcript record detected.'}</p>
                                     </div>
                                     {rev.goals && (
-                                      <div className="bg-mine-green/5 p-5 rounded-2xl border border-mine-green/10">
-                                        <p className="text-[9px] font-black text-mine-green uppercase tracking-[3px] mb-2 flex items-center gap-1.5">
+                                      <div className="bg-blue-50/5 p-5 rounded-2xl border border-blue-100/10">
+                                        <p className="text-[9px] font-black text-mine-blue uppercase tracking-[3px] mb-2 flex items-center gap-1.5">
                                           <Target size={12} /> Strategic Objectives
                                         </p>
                                         <p className="text-xs text-slate-800 font-bold leading-relaxed">{rev.goals}</p>
@@ -2366,7 +2471,7 @@ const EmployeeManagement: React.FC = () => {
                       <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-500">
                         <div className="flex items-center justify-between border-b border-gray-100 pb-6">
                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-mine-green rounded-2xl flex items-center justify-center text-white shadow-lg shadow-mine-green/20"><Plus size={24} /></div>
+                              <div className="w-12 h-12 bg-mine-blue rounded-2xl flex items-center justify-center text-white shadow-lg shadow-mine-blue/20"><Plus size={24} /></div>
                               <div>
                                 <h3 className="text-xl font-bold text-slate-900 leading-none">New Personnel Evaluation</h3>
                                 <p className="text-xs text-gray-500 mt-1 uppercase tracking-widest font-black">Performance Capture Matrix</p>
@@ -2442,7 +2547,7 @@ const EmployeeManagement: React.FC = () => {
                               value={reviewForm.feedback}
                               onChange={(e) => setReviewForm({...reviewForm, feedback: e.target.value})}
                               placeholder="Detail the personnel's operational efficiency, safety index, and cultural alignment..."
-                              className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-6 text-sm focus:ring-1 focus:ring-mine-green leading-relaxed"
+                              className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-6 text-sm focus:ring-1 focus:ring-mine-blue leading-relaxed"
                             />
                           </div>
 
@@ -2456,7 +2561,7 @@ const EmployeeManagement: React.FC = () => {
                               value={reviewForm.goals}
                               onChange={(e) => setReviewForm({...reviewForm, goals: e.target.value})}
                               placeholder="Define critical KPIs, certification requirements, or leadership evolution goals..."
-                              className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-6 text-sm focus:ring-1 focus:ring-mine-green"
+                              className="w-full bg-gray-50 border border-gray-200 rounded-2xl p-6 text-sm focus:ring-1 focus:ring-mine-blue"
                             />
                           </div>
 
@@ -2517,7 +2622,7 @@ const EmployeeManagement: React.FC = () => {
               className="bg-white w-full max-w-sm rounded-xl shadow-2xl overflow-hidden"
             >
               <div className="bg-gray-50 p-4 px-6 border-b flex justify-between items-center">
-                <h3 className="font-extrabold text-mine-green uppercase text-[10px] tracking-widest flex items-center gap-2">
+                <h3 className="font-extrabold text-mine-blue uppercase text-[10px] tracking-widest flex items-center gap-2">
                   <Users size={16} /> Bulk Department Assignment
                 </h3>
                 <button onClick={() => setIsBulkDeptOpen(false)}><X size={20} className="text-gray-400" /></button>
@@ -2531,7 +2636,7 @@ const EmployeeManagement: React.FC = () => {
                     value={bulkDept} 
                     onChange={(e) => setBulkDept(e.target.value)} 
                     placeholder="e.g. Operations, Mining, Safety"
-                    className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green" 
+                    className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue" 
                   />
                 </div>
                 <button type="submit" disabled={processing} className="btn btn-primary w-full py-3 flex items-center justify-center gap-2">
@@ -2573,7 +2678,7 @@ const EmployeeManagement: React.FC = () => {
                     value={authEmail} 
                     onChange={(e) => setAuthEmail(e.target.value)} 
                     placeholder="Enter your email to authorize"
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm outline-none focus:ring-1 focus:ring-mine-green" 
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-sm outline-none focus:ring-1 focus:ring-mine-blue" 
                   />
                 </div>
                 <div className="flex gap-3">
@@ -2586,12 +2691,90 @@ const EmployeeManagement: React.FC = () => {
                   </button>
                   <button 
                     type="submit" 
-                    className="flex-[2] py-4 bg-mine-green text-white rounded-xl shadow-lg shadow-mine-green/20 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                    className="flex-[2] py-4 bg-mine-blue text-white rounded-xl shadow-lg shadow-mine-blue/20 text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
                   >
                     Authorize Access
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {rejectionModal && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-gray-100"
+            >
+              <div className="p-6 bg-red-50 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
+                  <X size={24} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">
+                    Rejection Feedback
+                  </h3>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Provide a reason for the employee</p>
+                </div>
+              </div>
+
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Reason for Rejection</label>
+                  <textarea 
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    placeholder="E.g., Incomplete documentation, Missing hours verification..."
+                    className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs min-h-[120px] focus:ring-1 focus:ring-red-500 outline-none transition-all resize-none font-medium"
+                    required
+                  />
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button 
+                    onClick={() => {
+                      setRejectionModal(null);
+                      setRejectionReason('');
+                    }}
+                    className="flex-1 px-6 py-3 rounded-xl border border-gray-200 text-gray-500 text-xs font-black uppercase tracking-widest hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={!rejectionReason.trim() || processing}
+                    onClick={async () => {
+                      if (!rejectionModal) return;
+                      if (rejectionModal.selectionSet && rejectionModal.selectionSetter) {
+                        const ids = Array.from(rejectionModal.selectionSet);
+                        const collection = rejectionModal.collection;
+                        setProcessing(true);
+                        let successCount = 0;
+                        for (const id of ids) {
+                          try {
+                            await handleStatusUpdate(collection, id as string, 'rejected', true, rejectionReason);
+                            successCount++;
+                          } catch (err) { }
+                        }
+                        rejectionModal.selectionSetter(new Set());
+                        fetchData();
+                        toast.success(`Processed ${successCount} rejections.`);
+                      } else {
+                        await handleStatusUpdate(rejectionModal.collection, rejectionModal.id, 'rejected', false, rejectionReason);
+                      }
+                      setRejectionModal(null);
+                      setRejectionReason('');
+                    }}
+                    className="flex-1 px-6 py-3 rounded-xl bg-red-600 text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-red-600/20 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    Confirm Rejection
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

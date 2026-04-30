@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import cors from "cors";
 
 dotenv.config();
 
@@ -24,10 +25,23 @@ const adminClient = (supabaseUrl && supabaseServiceKey)
 
 async function startServer() {
   const app = express();
+  
+  // Enable CORS for all routes to handle preview iframe complexities
+  app.use(cors());
   app.use(express.json());
+
+  // Basic health check
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "online", 
+      timestamp: new Date().toISOString(),
+      adminClient: !!adminClient
+    });
+  });
 
   // Admin User Creation API
   app.post("/api/admin/create-user", async (req, res) => {
+    console.log("POST /api/admin/create-user - Request received");
     if (!adminClient) {
       return res.status(500).json({ error: "Supabase Admin client not initialized. Check SUPABASE_SERVICE_ROLE_KEY." });
     }
@@ -72,7 +86,7 @@ async function startServer() {
       let userId: string;
       const { data: authUser, error: createError } = await adminClient.auth.admin.createUser({
         email,
-        password: password || "Mining2026!", // Strong default password
+        password: password || "Mining2026!",
         email_confirm: true,
         user_metadata: { 
           full_name: fullName,
@@ -81,15 +95,25 @@ async function startServer() {
       });
 
       if (createError) {
-        if (createError.message.includes("already been registered")) {
-          // User exists, try to fetch to get ID
-          const { data: searchResult, error: searchError } = await adminClient.auth.admin.listUsers();
+        if (createError.message.includes("already been registered") || createError.message.includes("already exists")) {
+          // Find existing user efficiently
+          const { data, error: searchError } = await adminClient.auth.admin.listUsers();
           if (searchError) throw searchError;
           
-          const existingUser = searchResult.users.find((u: any) => u.email === email);
-          if (!existingUser) throw new Error("User exists but could not be retrieved.");
+          const existingUser = (data.users as any[]).find(u => u.email?.toLowerCase() === email.toLowerCase());
+          if (!existingUser) throw new Error("User exists in auth but could not be retrieved.");
           
           userId = existingUser.id;
+
+          // Update password and metadata to ensure consistency
+          const { error: updateError } = await adminClient.auth.admin.updateUserById(userId, {
+            password: password || "Mining2026!",
+            user_metadata: { 
+              full_name: fullName,
+              role: sanitizedMetadata.role || 'employee'
+            }
+          });
+          if (updateError) console.warn("Sync update failed for existing user:", updateError.message);
         } else {
           throw createError;
         }
@@ -127,7 +151,11 @@ async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        hmr: false,
+        watch: null
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

@@ -11,6 +11,7 @@ import SubsidiaryManagement from './components/SubsidiaryManagement';
 import { motion, AnimatePresence } from 'motion/react';
 
 import GlobalSearch from './components/GlobalSearch';
+import DevSandbox from './components/DevSandbox';
 
 function LoginScreen() {
   const [email, setEmail] = React.useState('');
@@ -73,7 +74,7 @@ function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-mine-green flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-mine-blue flex items-center justify-center p-4 relative overflow-hidden">
       {/* Decorative background elements */}
       <div className="absolute top-0 right-0 w-96 h-96 bg-mine-gold/10 rounded-full blur-3xl -mr-48 -mt-48"></div>
       <div className="absolute bottom-0 left-0 w-96 h-96 bg-black/20 rounded-full blur-3xl -ml-48 -mb-48"></div>
@@ -83,10 +84,10 @@ function LoginScreen() {
         animate={{ opacity: 1, scale: 1 }}
         className="max-w-md w-full card !p-10 text-center border-mine-gold/30 shadow-2xl z-10"
       >
-        <div className="w-16 h-16 bg-mine-green text-mine-gold rounded-xl flex items-center justify-center mx-auto mb-6 border-2 border-mine-gold/50 shadow-inner overflow-hidden">
+        <div className="w-16 h-16 bg-mine-blue text-mine-gold rounded-xl flex items-center justify-center mx-auto mb-6 border-2 border-mine-gold/50 shadow-inner overflow-hidden">
           <Pickaxe size={32} className="rotate-12" />
         </div>
-        <h1 className="text-3xl font-black text-mine-green uppercase tracking-tighter mb-1">Mineazy</h1>
+        <h1 className="text-3xl font-black text-mine-blue uppercase tracking-tighter mb-1">Mineazy</h1>
         <p className="text-[10px] text-gray-500 font-black uppercase tracking-[4px] mb-10">Payroll Solutions</p>
         
         <form onSubmit={handleAuth} className="space-y-4">
@@ -107,7 +108,7 @@ function LoginScreen() {
                   placeholder="Full Name"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-green"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-blue"
                 />
               </div>
             </div>
@@ -123,7 +124,7 @@ function LoginScreen() {
                 placeholder="Email Address"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-green"
+                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-blue"
               />
             </div>
           </div>
@@ -137,7 +138,7 @@ function LoginScreen() {
                 placeholder="System Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-green"
+                className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-1 focus:ring-mine-blue"
               />
             </div>
           </div>
@@ -186,12 +187,13 @@ function MainApp() {
   const { user, profile, loading, isAdmin, isSuperAdmin } = useAuth();
   const [activeTab, setActiveTab] = React.useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [selectedEmployeeFromSearch, setSelectedEmployeeFromSearch] = React.useState<any | null>(null);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-app-bg">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-mine-green border-t-mine-gold rounded-full animate-spin"></div>
+          <div className="w-10 h-10 border-4 border-mine-blue border-t-mine-gold rounded-full animate-spin"></div>
           <p className="font-mono text-[10px] font-bold text-gray-400 uppercase tracking-widest">Encrypting Session...</p>
         </div>
       </div>
@@ -207,9 +209,15 @@ function MainApp() {
     setIsMobileMenuOpen(false);
   };
 
+  const handleGlobalSearchSelect = (result: any) => {
+    if (result.type === 'employee') {
+      setSelectedEmployeeFromSearch(result.data);
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen">
-      <header className="h-16 bg-mine-green text-white flex items-center justify-between px-4 sm:px-6 border-b-4 border-mine-gold shrink-0 z-50">
+      <header className="h-16 bg-mine-blue text-white flex items-center justify-between px-4 sm:px-6 border-b-4 border-mine-gold shrink-0 z-50 shadow-lg shadow-blue-900/10">
         <div className="flex items-center gap-3">
           <button 
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -221,7 +229,7 @@ function MainApp() {
               <span className={`h-0.5 w-full bg-white transition-all ${isMobileMenuOpen ? '-rotate-45 -translate-y-1.5' : ''}`}></span>
             </div>
           </button>
-          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-mine-gold rounded-lg flex items-center justify-center text-mine-green shadow-sm shrink-0">
+          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-mine-gold rounded-lg flex items-center justify-center text-mine-blue shadow-sm shrink-0">
             <Pickaxe size={20} className="-rotate-12 transition-transform hover:rotate-0 duration-300 sm:w-6 sm:h-6" />
           </div>
           <div className="leading-tight hidden xs:block">
@@ -231,7 +239,7 @@ function MainApp() {
         </div>
 
         <div className="flex-1 max-w-md mx-4 hidden sm:block">
-          <GlobalSearch setActiveTab={handleSetTab} />
+          <GlobalSearch setActiveTab={handleSetTab} onSelect={handleGlobalSearchSelect} />
         </div>
 
         <div className="flex items-center gap-3 sm:gap-5">
@@ -245,7 +253,7 @@ function MainApp() {
             {(user as any).photoURL || user.user_metadata?.avatar_url ? (
               <img src={(user as any).photoURL || user.user_metadata?.avatar_url} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
             ) : (
-              <span className="text-mine-green font-black text-xs sm:text-sm uppercase">
+              <span className="text-mine-blue font-black text-xs sm:text-sm uppercase">
                 {profile?.full_name?.split(' ').map((n: string) => n[0]).join('').slice(0, 2) || 'M'}
               </span>
             )}
@@ -277,7 +285,7 @@ function MainApp() {
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
           {/* Mobile Search - only visible on small screens when header search is hidden */}
           <div className="mb-4 sm:hidden">
-            <GlobalSearch setActiveTab={handleSetTab} />
+            <GlobalSearch setActiveTab={handleSetTab} onSelect={handleGlobalSearchSelect} />
           </div>
 
           <AnimatePresence mode="wait">
@@ -289,7 +297,12 @@ function MainApp() {
               transition={{ duration: 0.2 }}
             >
               {isAdmin && activeTab === 'admin' && <AdminDashboard />}
-              {isAdmin && activeTab === 'employees' && <EmployeeManagement />}
+              {isAdmin && activeTab === 'employees' && (
+                <EmployeeManagement 
+                  preSelectedEmployee={selectedEmployeeFromSearch} 
+                  onClearPreSelected={() => setSelectedEmployeeFromSearch(null)}
+                />
+              )}
               {isSuperAdmin && activeTab === 'subsidiaries' && <SubsidiaryManagement />}
               {(!isAdmin || (activeTab !== 'admin' && activeTab !== 'employees' && activeTab !== 'subsidiaries')) && (
                 <Dashboard activeTab={activeTab} setActiveTab={handleSetTab} />
@@ -307,6 +320,7 @@ export default function App() {
     <AuthProvider>
       <Toaster position="top-right" />
       <MainApp />
+      <DevSandbox />
     </AuthProvider>
   );
 }

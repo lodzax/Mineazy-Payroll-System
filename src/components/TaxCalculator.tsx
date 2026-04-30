@@ -29,19 +29,19 @@ const TaxCalculator: React.FC = () => {
     <div className="card h-full">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="text-mine-green" size={20} />
+          <ShieldCheck className="text-mine-blue" size={20} />
           <h3 className="card-title !mb-0">ZIMRA Compliance Tool</h3>
         </div>
         <div className="flex bg-gray-100 p-1 rounded-md">
           <button 
             onClick={() => setCurrency('USD')}
-            className={`px-3 py-1 text-[10px] font-black tracking-widest uppercase transition-all rounded ${currency === 'USD' ? 'bg-white shadow-sm text-mine-green' : 'text-gray-400'}`}
+            className={`px-3 py-1 text-[10px] font-black tracking-widest uppercase transition-all rounded ${currency === 'USD' ? 'bg-white shadow-sm text-mine-blue' : 'text-gray-400'}`}
           >
             USD
           </button>
           <button 
             onClick={() => setCurrency('ZWG')}
-            className={`px-3 py-1 text-[10px] font-black tracking-widest uppercase transition-all rounded ${currency === 'ZWG' ? 'bg-white shadow-sm text-mine-green' : 'text-gray-400'}`}
+            className={`px-3 py-1 text-[10px] font-black tracking-widest uppercase transition-all rounded ${currency === 'ZWG' ? 'bg-white shadow-sm text-mine-blue' : 'text-gray-400'}`}
           >
             ZWG
           </button>
@@ -56,7 +56,7 @@ const TaxCalculator: React.FC = () => {
               type="number"
               value={grossSalary}
               onChange={(e) => setGrossSalary(e.target.value)}
-              className="w-full bg-gray-50 border border-border rounded-md p-3 text-lg font-black text-mine-green focus:ring-1 focus:ring-mine-green font-mono"
+              className="w-full bg-gray-50 border border-border rounded-md p-3 text-lg font-black text-mine-blue focus:ring-1 focus:ring-mine-blue font-mono"
               placeholder="0.00"
             />
             <Calculator className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none" size={20} />
@@ -84,7 +84,7 @@ const TaxCalculator: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-mine-green text-white p-4 rounded-md flex justify-between items-center shadow-lg shadow-mine-green/20">
+            <div className="bg-mine-blue text-white p-4 rounded-md flex justify-between items-center shadow-lg shadow-mine-blue/20">
               <div>
                 <p className="text-[9px] font-bold text-mine-gold uppercase tracking-widest mb-1">Estimated Net Pay</p>
                 <p className="text-2xl font-black font-mono leading-none">{currency} {results.netPay.toFixed(2)}</p>

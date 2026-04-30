@@ -73,9 +73,9 @@ const PayrollReports: React.FC = () => {
           exportData = rawData.map((d: any) => ({
             'Employee Name': empMap.get(d.user_id) || 'Unknown',
             'Period': d.month_year,
-            'Basic Salary': d.basic_salary,
-            'Gross Pay': d.basic_salary + (d.allowances || 0),
-            'Total Deductions': d.deductions + d.paye + d.nssa,
+            'Basic Salary': d.base_salary,
+            'Gross Pay': d.gross_pay,
+            'Total Deductions': d.total_deductions,
             'Net Pay': d.net_pay,
             'Currency': d.currency,
           }));
@@ -84,10 +84,19 @@ const PayrollReports: React.FC = () => {
           exportData = rawData.map((d: any) => ({
             'Employee Name': empMap.get(d.user_id) || 'Unknown',
             'Period': d.month_year,
-            'Gross Pay': d.basic_salary + (d.allowances || 0),
-            'PAYE Tax': d.paye,
-            'NSSA Deduction': d.nssa,
+            'Gross Pay': d.gross_pay,
+            'PAYE Tax': d.tax_amount,
+            'NSSA Deduction': d.nssa_deduction,
             'Currency': d.currency
+          }));
+          break;
+        case 'loan_deduction':
+          exportData = rawData.map((d: any) => ({
+            'Employee Name': empMap.get(d.user_id) || 'Unknown',
+            'Period': d.month_year,
+            'Loan Amount': d.loan_deductions,
+            'Currency': d.currency,
+            'Status': d.status || 'Processed'
           }));
           break;
         case 'timesheets':
@@ -142,7 +151,7 @@ const PayrollReports: React.FC = () => {
     <section className="card bg-white border border-gray-100 shadow-sm overflow-hidden">
       <div className="p-6 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-mine-green/10 text-mine-green rounded-lg">
+          <div className="p-2 bg-mine-blue/10 text-mine-blue rounded-lg">
             <FileSpreadsheet size={18} />
           </div>
           <div>
@@ -164,8 +173,8 @@ const PayrollReports: React.FC = () => {
                   onClick={() => setReportType(type.id)}
                   className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border ${
                     reportType === type.id 
-                      ? 'bg-mine-green text-white border-mine-green shadow-lg shadow-green-100' 
-                      : 'bg-white text-gray-500 border-gray-100 hover:border-mine-green hover:text-mine-green'
+                      ? 'bg-mine-blue text-white border-mine-blue shadow-lg shadow-blue-100' 
+                      : 'bg-white text-gray-500 border-gray-100 hover:border-mine-blue hover:text-mine-blue'
                   }`}
                 >
                   {type.icon}
@@ -186,7 +195,7 @@ const PayrollReports: React.FC = () => {
                     type="month" 
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-mine-green"
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue"
                   />
                 </div>
               </div>
@@ -198,7 +207,7 @@ const PayrollReports: React.FC = () => {
                     type="month" 
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-mine-green"
+                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-100 rounded-xl text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue"
                   />
                 </div>
               </div>

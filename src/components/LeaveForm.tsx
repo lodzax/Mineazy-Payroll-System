@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
-import { Calendar, CheckCircle, Send, AlertCircle, MapPin, ChevronLeft, ChevronRight, Info, AlertTriangle, FileText } from 'lucide-react';
+import { Calendar, CheckCircle, Send, AlertCircle, MapPin, ChevronLeft, ChevronRight, Info, AlertTriangle, FileText, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 const ZIM_PUBLIC_HOLIDAYS_2026 = [
   '2026-01-01', // New Year's Day
@@ -36,15 +37,16 @@ const Pagination: React.FC<{
       <div className="flex gap-1">
         <button
           disabled={currentPage === 1}
+          onPageChange={setCurrentPage}
           onClick={() => onPageChange(currentPage - 1)}
-          className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-green transition-all"
+          className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-blue transition-all"
         >
           <ChevronLeft size={12} />
         </button>
         <button
           disabled={currentPage === totalPages}
           onClick={() => onPageChange(currentPage + 1)}
-          className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-green transition-all"
+          className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-blue transition-all"
         >
           <ChevronRight size={12} />
         </button>
@@ -61,8 +63,10 @@ const LeaveForm: React.FC = () => {
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
+  const [selectedLeave, setSelectedLeave] = useState<any | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewingLeave, setViewingLeave] = useState<any | null>(null);
   const PAGE_SIZE = 5;
 
   const [dateStats, setDateStats] = useState({
@@ -126,7 +130,9 @@ const LeaveForm: React.FC = () => {
       setHistory((data || []).map(lv => ({
         ...lv,
         startDate: lv.start_date,
-        endDate: lv.end_date
+        endDate: lv.end_date,
+        rejectionReason: lv.rejection_reason || lv.manager_feedback,
+        managerFeedback: lv.manager_feedback
       })));
     }
   };
@@ -149,7 +155,7 @@ const LeaveForm: React.FC = () => {
         start_date: startDate,
         end_date: endDate,
         reason,
-        status: 'pending',
+        status: 'pending_approval',
         created_at: new Date().toISOString()
       };
 
@@ -194,11 +200,11 @@ const LeaveForm: React.FC = () => {
           <div className="bg-white border border-gray-100 rounded-xl px-6 py-3 flex items-center gap-4 shadow-sm">
             <div className="text-right">
               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Applications</p>
-              <p className="text-xl font-black text-mine-green font-mono">
+              <p className="text-xl font-black text-mine-blue font-mono">
                 {history.length}
               </p>
             </div>
-            <FileText className="text-mine-green/30" size={24} />
+            <FileText className="text-mine-blue/30" size={24} />
           </div>
           <div className="bg-orange-50 border border-orange-100 rounded-xl px-6 py-3 flex items-center gap-4 shadow-sm">
             <div className="text-right">
@@ -220,7 +226,7 @@ const LeaveForm: React.FC = () => {
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value)}
-                className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-green focus:outline-none transition-all"
+                className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
               >
                 <option value="annual">Annual Leave</option>
                 <option value="sick">Sick Leave</option>
@@ -236,7 +242,7 @@ const LeaveForm: React.FC = () => {
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-green focus:outline-none transition-all"
+                  className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
                   required
                 />
               </div>
@@ -246,7 +252,7 @@ const LeaveForm: React.FC = () => {
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-green focus:outline-none transition-all"
+                  className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
                   required
                 />
               </div>
@@ -257,7 +263,7 @@ const LeaveForm: React.FC = () => {
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 rows={3}
-                className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-green focus:outline-none transition-all resize-none"
+                className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all resize-none"
                 placeholder="Logistics or details..."
               />
             </div>
@@ -266,9 +272,9 @@ const LeaveForm: React.FC = () => {
               <div className="bg-gray-50/50 border border-app-bg rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                    <Info size={12} className="text-mine-green" /> Application Summary
+                    <Info size={12} className="text-mine-blue" /> Application Summary
                   </h4>
-                  <span className="text-[10px] font-mono font-bold text-mine-green">{dateStats.totalDays} Calendar Days</span>
+                  <span className="text-[10px] font-mono font-bold text-mine-blue">{dateStats.totalDays} Calendar Days</span>
                 </div>
                 
                 <div className="grid grid-cols-3 gap-2">
@@ -308,7 +314,7 @@ const LeaveForm: React.FC = () => {
 
             {message && (
               <div className={`p-3 rounded-md flex items-center gap-2 text-xs font-semibold ${
-                message.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                message.type === 'success' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'
               }`}>
                 {message.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
                 <p>{message.text}</p>
@@ -341,16 +347,26 @@ const LeaveForm: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-app-bg">
                 {history.length > 0 ? history.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE).map((l) => (
-                  <tr key={l.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-gray-700 capitalize">{l.type}</td>
+                  <tr 
+                    key={l.id} 
+                    className="hover:bg-gray-50/50 transition-colors cursor-pointer group"
+                    onClick={() => setViewingLeave(l)}
+                  >
+                    <td className="px-4 py-3 font-semibold text-gray-700 capitalize">
+                      <div className="flex items-center justify-between">
+                        {l.type}
+                        <Info size={10} className="opacity-0 group-hover:opacity-100 transition-opacity text-mine-blue" />
+                      </div>
+                    </td>
                     <td className="px-4 py-3 font-mono text-[10px] text-gray-500 whitespace-nowrap">{l.startDate} &gt; {l.endDate}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-right">
                       <span className={`badge ${
-                        l.status === 'approved' ? 'bg-green-50 text-green-700 border border-green-100' :
+                        l.status === 'approved' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
                         l.status === 'rejected' ? 'bg-red-50 text-red-700 border border-red-100' :
-                        'bg-blue-50 text-blue-700 border border-blue-100'
+                        l.status === 'pending_approval' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+                        'bg-gray-50 text-gray-700 border border-gray-100'
                       }`}>
-                        {l.status}
+                        {l.status === 'pending_approval' ? 'Pending Approval' : l.status}
                       </span>
                     </td>
                   </tr>
@@ -372,6 +388,96 @@ const LeaveForm: React.FC = () => {
           </div>
         </section>
       </div>
+
+      <AnimatePresence>
+        {viewingLeave && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4 px-10">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-gray-100"
+            >
+              <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-white">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-mine-blue/5 flex items-center justify-center text-mine-blue">
+                    <Calendar size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black text-gray-900 uppercase tracking-widest">Leave Node Inspection</h3>
+                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">Request ID: {viewingLeave.id.slice(0, 8)}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setViewingLeave(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-400"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Status Identifier</p>
+                    <span className={`badge ${
+                      viewingLeave.status === 'approved' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+                      viewingLeave.status === 'rejected' ? 'bg-red-50 text-red-700 border border-red-100' :
+                      viewingLeave.status === 'pending_approval' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
+                      'bg-gray-50 text-gray-700 border border-gray-100'
+                    }`}>
+                      {viewingLeave.status === 'pending_approval' ? 'Pending Approval' : viewingLeave.status}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Category</p>
+                    <p className="text-sm font-black text-gray-900 uppercase tracking-widest">{viewingLeave.type}</p>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-3">
+                   <div className="flex justify-between">
+                     <span className="text-[9px] font-black text-gray-400 uppercase">Commencement</span>
+                     <span className="text-xs font-bold font-mono">{viewingLeave.startDate}</span>
+                   </div>
+                   <div className="flex justify-between">
+                     <span className="text-[9px] font-black text-gray-400 uppercase">Conclusion</span>
+                     <span className="text-xs font-bold font-mono">{viewingLeave.endDate}</span>
+                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Employee Reason</p>
+                  <p className="text-xs text-gray-600 italic leading-relaxed bg-gray-50 p-3 rounded-lg border border-gray-100">
+                    "{viewingLeave.reason || 'No description provided'}"
+                  </p>
+                </div>
+
+                {(viewingLeave.rejection_reason || viewingLeave.rejectionReason || viewingLeave.manager_feedback || viewingLeave.managerFeedback) && (
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertCircle size={10} className={viewingLeave.status === 'rejected' ? 'text-red-500' : 'text-mine-blue'} />
+                      <p className={`text-[9px] font-black uppercase tracking-widest ${viewingLeave.status === 'rejected' ? 'text-red-600' : 'text-mine-blue'}`}>
+                        {viewingLeave.status === 'rejected' ? 'Auditor Rejection Feedback' : 'Manager Review Feedback'}
+                      </p>
+                    </div>
+                    <div className={`p-4 rounded-xl text-xs font-bold border italic leading-relaxed shadow-sm ${viewingLeave.status === 'rejected' ? 'bg-red-50/50 text-red-700 border-red-100/50' : 'bg-blue-50/50 text-blue-700 border-blue-100/50'}`}>
+                      "{viewingLeave.rejection_reason || viewingLeave.rejectionReason || viewingLeave.manager_feedback || viewingLeave.managerFeedback}"
+                    </div>
+                  </div>
+                )}
+
+                <button 
+                  onClick={() => setViewingLeave(null)}
+                  className="w-full py-4 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all font-bold"
+                >
+                  Close Data Node
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

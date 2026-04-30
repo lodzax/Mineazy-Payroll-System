@@ -122,7 +122,8 @@ const TimesheetForm: React.FC = () => {
         console.error("Timesheet Submission Error:", error);
         throw error;
       }
-      setMessage({ type: 'success', text: `${submissionMode.charAt(0).toUpperCase() + submissionMode.slice(1)} timesheet submission logged in the ledger.` });
+      const modeLabel = submissionMode ? (submissionMode.charAt(0).toUpperCase() + submissionMode.slice(1)) : 'Timesheet';
+      setMessage({ type: 'success', text: `${modeLabel} submission logged in the ledger.` });
       
       // Auto-clear message after 5 seconds
       setTimeout(() => setMessage(null), 5000);
@@ -387,7 +388,7 @@ const TimesheetForm: React.FC = () => {
         <div className="flex gap-4">
           <div className="bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm text-center min-w-[100px]">
             <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Submissions</span>
-            <span className="text-xl font-black text-mine-green leading-none">{history.length}</span>
+            <span className="text-xl font-black text-mine-blue leading-none">{history.length}</span>
           </div>
           <div className="bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm text-center min-w-[100px]">
             <span className="block text-[8px] font-black text-gray-400 uppercase tracking-widest leading-none mb-1">Total Hours</span>
@@ -403,7 +404,7 @@ const TimesheetForm: React.FC = () => {
           <div className="card sticky top-8">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                <Send size={10} className="text-mine-green" /> Submit Log
+                <Send size={10} className="text-mine-blue" /> Submit Log
               </h2>
             </div>
             
@@ -420,7 +421,7 @@ const TimesheetForm: React.FC = () => {
                   }}
                   className={`flex-1 text-[9px] font-black uppercase py-2 rounded-md transition-all tracking-widest ${
                     submissionMode === mode 
-                      ? 'bg-white text-mine-green shadow-sm' 
+                      ? 'bg-white text-mine-blue shadow-sm' 
                       : 'text-gray-400 hover:text-gray-600'
                   }`}
                 >
@@ -439,7 +440,7 @@ const TimesheetForm: React.FC = () => {
                     const val = e.target.value;
                     setDate(submissionMode === 'monthly' ? `${val}-01` : val);
                   }}
-                  className="w-full bg-gray-50 border border-gray-100 rounded px-3 py-2 text-sm font-bold focus:ring-1 focus:ring-mine-green focus:outline-none transition-all"
+                  className="w-full bg-gray-50 border border-gray-100 rounded px-3 py-2 text-sm font-bold focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
                   required
                 />
               </div>
@@ -476,7 +477,7 @@ const TimesheetForm: React.FC = () => {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="What have you achieved?"
-                  className="w-full bg-gray-50 border border-gray-100 rounded px-3 py-2 text-sm min-h-[100px] focus:ring-1 focus:ring-mine-green focus:outline-none transition-all resize-none"
+                  className="w-full bg-gray-50 border border-gray-100 rounded px-3 py-2 text-sm min-h-[100px] focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all resize-none"
                   required
                 />
               </div>
@@ -486,7 +487,7 @@ const TimesheetForm: React.FC = () => {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   className={`p-3 rounded flex items-center gap-2 text-[10px] font-black uppercase tracking-wider ${
-                    message.type === 'success' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'
+                    message.type === 'success' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-red-50 text-red-700 border border-red-100'
                   }`}
                 >
                   {message.type === 'success' ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
@@ -496,7 +497,7 @@ const TimesheetForm: React.FC = () => {
 
               <button
                 disabled={loading}
-                className="btn btn-primary w-full !py-4 !text-xs font-black uppercase tracking-[0.25em] flex items-center justify-center gap-3 mt-2 shadow-lg shadow-mine-green/10"
+                className="btn btn-primary w-full !py-4 !text-xs font-black uppercase tracking-[0.25em] flex items-center justify-center gap-3 mt-2 shadow-lg shadow-mine-blue/10"
               >
                 {loading ? <RefreshCw className="animate-spin" size={14} /> : <Send size={14} />}
                 {loading ? 'Processing...' : `Submit ${submissionMode}`}
@@ -526,7 +527,7 @@ const TimesheetForm: React.FC = () => {
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: 20 }}
                       onClick={() => setIsBulkEditing(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-mine-gold text-mine-green hover:bg-mine-gold/90 transition-all text-[9px] font-black uppercase tracking-widest shadow-lg shadow-mine-gold/20"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-mine-blue text-white hover:bg-mine-blue/90 transition-all text-[9px] font-black uppercase tracking-widest shadow-lg shadow-mine-blue/20"
                     >
                       <Pencil size={12} />
                       Bulk Edit ({selectedEntries.size})
@@ -536,7 +537,7 @@ const TimesheetForm: React.FC = () => {
                 <button
                   type="button"
                   onClick={downloadTemplate}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-mine-green hover:border-mine-green/30 hover:bg-mine-green/5 transition-all text-[9px] font-black uppercase tracking-widest"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:text-mine-blue hover:border-mine-blue/30 hover:bg-mine-blue/5 transition-all text-[9px] font-black uppercase tracking-widest"
                   title="Download CSV Template"
                 >
                   <Download size={12} />
@@ -570,7 +571,7 @@ const TimesheetForm: React.FC = () => {
                         type="checkbox"
                         checked={selectedEntries.size > 0 && selectedEntries.size === history.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE).filter(t => t.status === 'pending').length}
                         onChange={toggleSelectAll}
-                        className="w-3.5 h-3.5 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                       />
                     </th>
                     <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em]">Period</th>
@@ -594,7 +595,7 @@ const TimesheetForm: React.FC = () => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
-                          <span className="font-mono text-xs font-bold text-gray-900 group-hover:text-mine-green transition-colors">
+                          <span className="font-mono text-xs font-bold text-gray-900 group-hover:text-mine-blue transition-colors">
                             {t.date}
                           </span>
                           <span className="text-[8px] font-black text-gray-400 uppercase tracking-widest">
@@ -613,7 +614,7 @@ const TimesheetForm: React.FC = () => {
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest border ${
-                          t.status === 'approved' ? 'bg-green-50 text-green-600 border-green-100' :
+                          t.status === 'approved' ? 'bg-blue-50 text-blue-600 border-blue-100' :
                           t.status === 'rejected' ? 'bg-red-50 text-red-700 border border-red-100' :
                           'bg-blue-50 text-blue-600 border-blue-100'
                         }`}>
@@ -626,7 +627,7 @@ const TimesheetForm: React.FC = () => {
                             <>
                               <button
                                 onClick={() => startEditing(t)}
-                                className="p-1.5 rounded-lg bg-white border border-gray-100 text-gray-400 hover:text-mine-green hover:border-mine-green/30 transition-all shadow-sm"
+                                className="p-1.5 rounded-lg bg-white border border-gray-100 text-gray-400 hover:text-mine-blue hover:border-mine-blue/30 transition-all shadow-sm"
                                 title="Edit Entry"
                               >
                                 <Pencil size={12} />
@@ -684,7 +685,7 @@ const TimesheetForm: React.FC = () => {
             >
               <div className="p-8 border-b border-gray-50 flex items-center justify-between bg-white sticky top-0">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-2xl bg-mine-gold/10 flex items-center justify-center text-mine-green border border-mine-gold/20">
+                  <div className="w-10 h-10 rounded-2xl bg-mine-blue/10 flex items-center justify-center text-mine-blue border border-mine-blue/20">
                     <Pencil size={20} />
                   </div>
                   <div>
@@ -737,7 +738,7 @@ const TimesheetForm: React.FC = () => {
                     value={bulkDescription}
                     onChange={(e) => setBulkDescription(e.target.value)}
                     placeholder="Apply new summary to all selected entries..."
-                    className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-xs min-h-[140px] focus:ring-2 focus:ring-mine-green focus:outline-none transition-all resize-none shadow-inner"
+                    className="w-full bg-gray-50 border border-gray-100 rounded-2xl px-5 py-4 text-xs min-h-[140px] focus:ring-2 focus:ring-mine-blue focus:outline-none transition-all resize-none shadow-inner"
                   />
                 </div>
 
@@ -751,7 +752,7 @@ const TimesheetForm: React.FC = () => {
                   </button>
                   <button
                     disabled={loading || (!bulkHours && !bulkOvertime && !bulkDescription)}
-                    className="flex-3 px-8 py-4 rounded-2xl bg-mine-green text-white text-[10px] font-black uppercase tracking-widest shadow-xl shadow-mine-green/30 hover:bg-mine-green/90 transition-all disabled:opacity-50 disabled:grayscale"
+                    className="flex-3 px-8 py-4 rounded-2xl bg-mine-blue text-white text-[10px] font-black uppercase tracking-widest shadow-xl shadow-mine-blue/30 hover:bg-mine-blue/90 transition-all disabled:opacity-50 disabled:grayscale"
                   >
                     Commit Bulk Update
                   </button>
@@ -887,7 +888,7 @@ const TimesheetForm: React.FC = () => {
                   <div className="text-center">
                     <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Status</p>
                     <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest border ${
-                      viewingEntry.status === 'approved' ? 'bg-green-50 text-green-600 border-green-100' :
+                      viewingEntry.status === 'approved' ? 'bg-blue-50 text-blue-600 border-blue-100' :
                       viewingEntry.status === 'rejected' ? 'bg-red-50 text-red-700 border-red-100' :
                       'bg-blue-50 text-blue-600 border-blue-100'
                     }`}>
@@ -902,6 +903,18 @@ const TimesheetForm: React.FC = () => {
                     {viewingEntry.description}
                   </div>
                 </div>
+
+                {viewingEntry.status === 'rejected' && (viewingEntry.rejection_reason || viewingEntry.rejectionReason) && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertCircle size={10} className="text-red-500" />
+                      <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">Rejection Feedback</p>
+                    </div>
+                    <div className="p-4 bg-red-50/50 rounded-xl text-xs text-red-700 font-bold border border-red-100/50 italic leading-relaxed shadow-sm">
+                      "{viewingEntry.rejection_reason || viewingEntry.rejectionReason}"
+                    </div>
+                  </div>
+                )}
 
                 {viewingEntry.reviewedBy && (
                   <div className="pt-4 border-t border-gray-100">

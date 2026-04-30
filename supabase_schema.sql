@@ -124,7 +124,7 @@ CREATE TRIGGER on_auth_user_created
 -- Table: audit_logs
 CREATE TABLE IF NOT EXISTS audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id),
+    user_id UUID REFERENCES public.profiles(id),
     action TEXT NOT NULL,
     category TEXT, -- 'payroll', 'employee', 'auth', 'system'
     subsidiary_id UUID REFERENCES subsidiaries(id),
@@ -137,37 +137,55 @@ CREATE TABLE IF NOT EXISTS payroll_batches (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     subsidiary_id UUID REFERENCES subsidiaries(id),
     month_year TEXT NOT NULL, -- e.g., '2024-03'
-    status TEXT DEFAULT 'draft', -- 'draft', 'pending', 'approved', 'paid'
-    created_by UUID REFERENCES auth.users(id),
-    approved_by UUID REFERENCES auth.users(id),
-    created_at TIMESTAMPTZ DEFAULT now()
+    payroll_group TEXT DEFAULT 'General',
+    status TEXT DEFAULT 'draft', -- 'draft', 'pending', 'approved', 'paid', 'finalized'
+    notes TEXT,
+    created_by UUID REFERENCES public.profiles(id),
+    approved_by UUID REFERENCES public.profiles(id),
+    finalized_at TIMESTAMPTZ,
+    finalized_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (subsidiary_id, month_year, payroll_group)
 );
 
 -- Table: payslips
 CREATE TABLE IF NOT EXISTS payslips (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) NOT NULL,
+    subsidiary_id UUID REFERENCES subsidiaries(id),
     batch_id UUID REFERENCES payroll_batches(id) ON DELETE CASCADE,
     month_year TEXT NOT NULL,
-    basic_salary NUMERIC NOT NULL,
-    allowances NUMERIC DEFAULT 0,
-    deductions NUMERIC DEFAULT 0,
-    paye NUMERIC DEFAULT 0,
-    nssa NUMERIC DEFAULT 0,
+    month_display TEXT,
+    base_salary NUMERIC NOT NULL DEFAULT 0,
+    overtime_pay NUMERIC DEFAULT 0,
+    standard_hours NUMERIC DEFAULT 0,
+    overtime_hours NUMERIC DEFAULT 0,
+    gross_pay NUMERIC DEFAULT 0,
+    tax_amount NUMERIC DEFAULT 0,
+    aids_levy NUMERIC DEFAULT 0,
+    nssa_deduction NUMERIC DEFAULT 0,
+    loan_deductions NUMERIC DEFAULT 0,
+    total_deductions NUMERIC DEFAULT 0,
     net_pay NUMERIC NOT NULL,
     currency TEXT DEFAULT 'USD',
-    generated_at TIMESTAMPTZ DEFAULT now()
+    is_published BOOLEAN DEFAULT false,
+    breakdown JSONB DEFAULT '{}'::jsonb,
+    generated_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- Table: leave_requests
 CREATE TABLE IF NOT EXISTS leave_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) NOT NULL,
     type TEXT NOT NULL, -- 'annual', 'sick', 'maternity'
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    status TEXT DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
+    status TEXT DEFAULT 'pending', -- 'pending', 'pending_approval', 'approved', 'rejected'
     reason TEXT,
+    rejection_reason TEXT,
+    manager_feedback TEXT,
+    supervisor_id UUID REFERENCES public.profiles(id),
     created_at TIMESTAMPTZ DEFAULT now(),
     reviewed_at TIMESTAMPTZ,
     reviewed_by TEXT
@@ -176,11 +194,12 @@ CREATE TABLE IF NOT EXISTS leave_requests (
 -- Table: loan_requests
 CREATE TABLE IF NOT EXISTS loan_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) NOT NULL,
     amount NUMERIC NOT NULL,
     purpose TEXT,
     installments INTEGER NOT NULL,
     status TEXT DEFAULT 'pending',
+    rejection_reason TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
     reviewed_at TIMESTAMPTZ,
     reviewed_by TEXT
@@ -189,13 +208,14 @@ CREATE TABLE IF NOT EXISTS loan_requests (
 -- Table: timesheets
 CREATE TABLE IF NOT EXISTS timesheets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) NOT NULL,
+    user_id UUID REFERENCES public.profiles(id) NOT NULL,
     date DATE NOT NULL,
     month_year TEXT NOT NULL, -- '2024-03'
     hours_worked NUMERIC DEFAULT 0,
     overtime_hours NUMERIC DEFAULT 0,
     description TEXT,
     status TEXT DEFAULT 'pending',
+    rejection_reason TEXT,
     submission_mode TEXT DEFAULT 'daily',
     subsidiary_id UUID REFERENCES subsidiaries(id),
     submitted_at TIMESTAMPTZ DEFAULT now(),
@@ -206,13 +226,14 @@ CREATE TABLE IF NOT EXISTS timesheets (
 -- Table: personnel_reviews
 CREATE TABLE IF NOT EXISTS personnel_reviews (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) NOT NULL,
-    reviewer_id UUID REFERENCES auth.users(id),
+    user_id UUID REFERENCES public.profiles(id) NOT NULL,
+    reviewer_id UUID REFERENCES public.profiles(id),
     review_date DATE NOT NULL,
     overall_rating INTEGER CHECK (overall_rating >= 1 AND overall_rating <= 5),
     feedback TEXT,
     goals TEXT,
     status TEXT DEFAULT 'pending', -- 'pending', 'completed'
+    rejection_reason TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
     reviewed_at TIMESTAMPTZ,
     reviewed_by TEXT
@@ -308,6 +329,9 @@ BEGIN
         status = 'active';
 
     -- Ensure personnel_reviews tracking exists
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'personnel_reviews' AND column_name = 'rejection_reason') THEN
+        ALTER TABLE personnel_reviews ADD COLUMN rejection_reason TEXT;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'personnel_reviews' AND column_name = 'reviewed_at') THEN
         ALTER TABLE personnel_reviews ADD COLUMN reviewed_at TIMESTAMPTZ;
     END IF;
@@ -318,6 +342,9 @@ BEGIN
     -- Fix timesheets submission_mode
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'timesheets' AND column_name = 'submission_mode') THEN
         ALTER TABLE timesheets ADD COLUMN submission_mode TEXT DEFAULT 'daily';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'timesheets' AND column_name = 'rejection_reason') THEN
+        ALTER TABLE timesheets ADD COLUMN rejection_reason TEXT;
     END IF;
 
     -- Fix timesheets subsidiary_id
@@ -342,6 +369,9 @@ BEGIN
     END IF;
 
     -- Fix loan_requests reviewed_at/by
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'loan_requests' AND column_name = 'rejection_reason') THEN
+        ALTER TABLE loan_requests ADD COLUMN rejection_reason TEXT;
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'loan_requests' AND column_name = 'reviewed_at') THEN
         ALTER TABLE loan_requests ADD COLUMN reviewed_at TIMESTAMPTZ;
     END IF;
@@ -352,6 +382,68 @@ BEGIN
     -- Ensure branch exists in profiles
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'branch') THEN
         ALTER TABLE profiles ADD COLUMN branch TEXT;
+    END IF;
+
+    -- Explicitly ensure the FK exists with a standard name for PostgREST detection
+    IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'payslips_user_id_fkey') THEN
+        ALTER TABLE payslips ADD CONSTRAINT payslips_user_id_fkey FOREIGN KEY (user_id) REFERENCES profiles(id);
+    END IF;
+
+    -- Fix payslips columns
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'subsidiary_id') THEN
+        ALTER TABLE payslips ADD COLUMN subsidiary_id UUID REFERENCES subsidiaries(id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'month_display') THEN
+        ALTER TABLE payslips ADD COLUMN month_display TEXT;
+    END IF;
+    -- Ensure basic_salary has a default if it exists
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'basic_salary') THEN
+        ALTER TABLE payslips ALTER COLUMN basic_salary SET DEFAULT 0;
+    END IF;
+
+    -- Ensure base_salary exists and matches basic_salary if needed
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'base_salary') THEN
+        ALTER TABLE payslips ADD COLUMN base_salary NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'overtime_pay') THEN
+        ALTER TABLE payslips ADD COLUMN overtime_pay NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'standard_hours') THEN
+        ALTER TABLE payslips ADD COLUMN standard_hours NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'overtime_hours') THEN
+        ALTER TABLE payslips ADD COLUMN overtime_hours NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'gross_pay') THEN
+        ALTER TABLE payslips ADD COLUMN gross_pay NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'tax_amount') THEN
+        ALTER TABLE payslips ADD COLUMN tax_amount NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'aids_levy') THEN
+        ALTER TABLE payslips ADD COLUMN aids_levy NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'nssa_deduction') THEN
+        ALTER TABLE payslips ADD COLUMN nssa_deduction NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'loan_deductions') THEN
+        ALTER TABLE payslips ADD COLUMN loan_deductions NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'total_deductions') THEN
+        ALTER TABLE payslips ADD COLUMN total_deductions NUMERIC DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'is_published') THEN
+        ALTER TABLE payslips ADD COLUMN is_published BOOLEAN DEFAULT false;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'breakdown') THEN
+        ALTER TABLE payslips ADD COLUMN breakdown JSONB DEFAULT '{}'::jsonb;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'updated_at') THEN
+        ALTER TABLE payslips ADD COLUMN updated_at TIMESTAMPTZ DEFAULT now();
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payslips' AND column_name = 'payroll_group') THEN
+        ALTER TABLE payslips ADD COLUMN payroll_group TEXT;
     END IF;
 
     -- Fix loan_requests columns
@@ -373,6 +465,9 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leave_requests' AND column_name = 'subsidiary_id') THEN
         ALTER TABLE leave_requests ADD COLUMN subsidiary_id UUID REFERENCES subsidiaries(id);
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leave_requests' AND column_name = 'rejection_reason') THEN
+        ALTER TABLE leave_requests ADD COLUMN rejection_reason TEXT;
+    END IF;
 
     -- Ensure payroll_group exists in payroll_batches
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payroll_batches' AND column_name = 'payroll_group') THEN
@@ -390,6 +485,14 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'payroll_batches' AND column_name = 'finalized_by') THEN
         ALTER TABLE payroll_batches ADD COLUMN finalized_by TEXT;
+    END IF;
+
+    -- Ensure unique constraint for upsert
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints 
+        WHERE table_name = 'payroll_batches' AND constraint_name = 'payroll_batches_sub_month_group_key'
+    ) THEN
+        ALTER TABLE payroll_batches ADD CONSTRAINT payroll_batches_sub_month_group_key UNIQUE (subsidiary_id, month_year, payroll_group);
     END IF;
 
     -- SYNC EXISTING ROLES TO auth.users metadata for RLS (Avoid recursion)
@@ -421,10 +524,19 @@ WITH CHECK (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "Users can view their own payslips" ON payslips;
 CREATE POLICY "Users can view their own payslips" ON payslips
     FOR SELECT USING (auth.uid() = user_id);
-DROP POLICY IF EXISTS "Admins can view all payslips" ON payslips;
-CREATE POLICY "Admins can view all payslips" ON payslips
-    FOR SELECT USING (
+DROP POLICY IF EXISTS "Admins can manage all payslips" ON payslips;
+CREATE POLICY "Admins can manage all payslips" ON payslips
+    FOR ALL 
+    TO authenticated
+    USING (
         (auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin', 'superadmin', 'management')
+        OR (auth.jwt() -> 'user_metadata' ->> 'role') IN ('admin', 'superadmin', 'management')
+        OR (auth.jwt() ->> 'email') IN ('lodzax@gmail.com', 'accounts@mineazy.co.zw')
+        OR public.check_user_is_admin()
+    )
+    WITH CHECK (
+        (auth.jwt() -> 'app_metadata' ->> 'role') IN ('admin', 'superadmin', 'management')
+        OR (auth.jwt() -> 'user_metadata' ->> 'role') IN ('admin', 'superadmin', 'management')
         OR (auth.jwt() ->> 'email') IN ('lodzax@gmail.com', 'accounts@mineazy.co.zw')
         OR public.check_user_is_admin()
     );

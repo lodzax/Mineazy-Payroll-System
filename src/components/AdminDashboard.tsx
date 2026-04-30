@@ -15,13 +15,21 @@ import {
   Users,
   Warehouse,
   AlertTriangle,
+  AlertCircle,
   FileDown,
-  FileUp
+  FileUp,
+  AlertCircle as FileWarning,
+  CheckCircle,
+  HelpCircle,
+  Trash2,
+  MoreVertical,
+  Briefcase
 } from 'lucide-react';
 import { calculatePaye, calculateNssa, USD_TAX_BANDS, ZWG_TAX_BANDS } from '../lib/payrollUtils';
 import TaxCalculator from './TaxCalculator';
 import PayrollReports from './PayrollReports';
 import PayrollBatchManagement from './PayrollBatchManagement';
+import PayrollGuide from './PayrollGuide';
 import { useAuth } from '../lib/AuthContext';
 import { logAction } from '../services/loggerService';
 import { motion, AnimatePresence } from 'motion/react';
@@ -47,7 +55,7 @@ const Pagination: React.FC<{
         <button
           disabled={currentPage === 1}
           onClick={() => onPageChange(currentPage - 1)}
-          className="p-1.5 rounded bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+          className="p-1.5 rounded bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-blue hover:text-mine-blue transition-all"
         >
           <ChevronLeft size={14} />
         </button>
@@ -56,7 +64,7 @@ const Pagination: React.FC<{
             <button
               key={p}
               onClick={() => onPageChange(p)}
-              className={`w-7 h-7 rounded text-[9px] font-bold transition-all ${currentPage === p ? 'bg-mine-green text-white shadow-lg' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-green hover:text-mine-green'}`}
+              className={`w-7 h-7 rounded text-[9px] font-bold transition-all ${currentPage === p ? 'bg-mine-blue text-white shadow-lg shadow-blue-200' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-blue hover:text-mine-blue'}`}
             >
               {p}
             </button>
@@ -69,7 +77,7 @@ const Pagination: React.FC<{
         <button
           disabled={currentPage === totalPages}
           onClick={() => onPageChange(currentPage + 1)}
-          className="p-1.5 rounded bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+          className="p-1.5 rounded bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-blue hover:text-mine-blue transition-all"
         >
           <ChevronRight size={14} />
         </button>
@@ -90,11 +98,30 @@ const AdminDashboard: React.FC = () => {
   const [processing, setProcessing] = useState(false);
   const [subFilter, setSubFilter] = useState('');
   const [payrollStatus, setPayrollStatus] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
   const [payrollGroupFilter, setPayrollGroupFilter] = useState('General');
   const [isBatchFinalized, setIsBatchFinalized] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ type: 'draft' | 'final', monthDisplay: string, group?: string } | null>(null);
   
-  const [activeTab, setActiveTab] = useState<'run' | 'batches' | 'reports'>('run');
+  // New state for Payroll Review & Readiness
+  const [draftPayslips, setDraftPayslips] = useState<any[]>([]);
+  const [readinessMetrics, setReadinessMetrics] = useState({
+    totalEmployees: 0,
+    approvedTimesheets: 0,
+    pendingTimesheets: 0,
+    pendingLoans: 0,
+    pendingLeave: 0
+  });
+
+  const [rejectionModal, setRejectionModal] = useState<{ 
+    collection: string, 
+    id: string, 
+    selectionSet?: Set<string>, 
+    selectionSetter?: React.Dispatch<React.SetStateAction<Set<string>>> 
+  } | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  
+  const [activeTab, setActiveTab] = useState<'run' | 'batches' | 'reports' | 'help'>('run');
   const [globalSearch, setGlobalSearch] = useState('');
   const [selectedTimesheets, setSelectedTimesheets] = useState<Set<string>>(new Set());
   const [selectedLeaveRequests, setSelectedLeaveRequests] = useState<Set<string>>(new Set());
@@ -160,9 +187,33 @@ const AdminDashboard: React.FC = () => {
       setEmployees(allEmps);
       setSubsidiaries(allSubs);
 
+      // Fetch Draft Payslips for Review & Readiness
+      await fetchDraftPayslips();
+      
+      const [pendingTimesheets, pendingLoans, pendingLeave] = await Promise.all([
+        supabase.from('timesheets').select('id', { count: 'exact', head: true }).eq('status', 'submitted').eq('month_year', month),
+        supabase.from('loan_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+        supabase.from('leave_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+      ]);
+
+      // Fetch approved timesheets count for the period
+      const { count: approvedTSCount } = await supabase
+        .from('timesheets')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'approved')
+        .eq('month_year', month);
+
+      setReadinessMetrics({
+        totalEmployees: (allEmps || []).filter(u => !['superadmin', 'admin'].includes(u.role)).length,
+        approvedTimesheets: approvedTSCount || 0,
+        pendingTimesheets: pendingTimesheets.count || 0,
+        pendingLoans: pendingLoans.count || 0,
+        pendingLeave: pendingLeave.count || 0
+      });
+
       // Fetch pending requests (loans, timesheets, leaves)
       const fetchCollection = async (table: string) => {
-        let q = supabase.from(table).select('*').in('status', ['pending', 'submitted']);
+        let q = supabase.from(table).select('*').in('status', ['pending', 'submitted', 'pending_approval']);
         if (!effectivelySuperAdmin) {
           if (profile?.subsidiary_id) {
             q = q.or(`subsidiary_id.eq.${profile.subsidiary_id},subsidiary_id.is.null`);
@@ -228,6 +279,154 @@ const AdminDashboard: React.FC = () => {
     }
   }, [authLoading, subFilter, isSuperAdmin, profile?.subsidiary_id]);
 
+  const fetchDraftPayslips = async () => {
+    const displayMonth = new Date().toISOString().slice(0, 7);
+    try {
+      let query = supabase
+        .from('payslips')
+        .select('*')
+        .eq('month_year', displayMonth)
+        .eq('is_published', false);
+
+      if (payrollGroupFilter !== 'All') {
+        // Since we are filtering by a referenced table, we might need a different approach or join filtering
+        // For now, we'll fetch all and filter in JS if needed, or stick to the group filter if it's in payslips (it's not)
+      }
+
+      if (subFilter) {
+        query = query.eq('subsidiary_id', subFilter);
+      }
+
+      const { data: payslips, error: fetchErr } = await query;
+      
+      if (fetchErr) {
+        console.error("Draft payslip fetch failed:", fetchErr);
+        return;
+      }
+
+      if (payslips && payslips.length > 0) {
+        const userIds = [...new Set(payslips.map(p => p.user_id))];
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, payroll_group, job_title')
+          .in('id', userIds);
+        
+        if (profilesError) {
+          console.error("Profiles fetch failed:", profilesError);
+          setDraftPayslips(payslips);
+        } else {
+          const profileMap = Object.fromEntries(profiles.map(p => [p.id, p]));
+          const joinedData = payslips.map(p => ({
+            ...p,
+            profiles: profileMap[p.user_id]
+          }));
+          
+          if (payrollGroupFilter !== 'All') {
+            setDraftPayslips(joinedData.filter(p => p.profiles?.payroll_group === payrollGroupFilter));
+          } else {
+            setDraftPayslips(joinedData);
+          }
+        }
+      } else {
+        setDraftPayslips([]);
+      }
+    } catch (err) {
+      console.error("Draft payslip fetch failed:", err);
+    }
+  };
+
+  const regenerateSinglePayslip = async (employeeId: string) => {
+    setProcessing(true);
+    setPayrollStatus({ type: 'info', message: 'Recomputing single record...' });
+    try {
+      // 1. Delete existing draft
+      const displayMonth = new Date().toISOString().slice(0, 7);
+      await supabase.from('payslips').delete().eq('user_id', employeeId).eq('month_year', displayMonth).eq('is_published', false);
+      
+      // 2. Fetch fresh data for this employee
+      const { data: emp, error: empErr } = await supabase.from('profiles').select('*').eq('id', employeeId).single();
+      if (empErr) throw empErr;
+
+      const { data: timesheets } = await supabase.from('timesheets').select('*').eq('user_id', employeeId).eq('month_year', displayMonth).eq('status', 'approved');
+      const { data: loans } = await supabase.from('loan_requests').select('*').eq('user_id', employeeId).eq('status', 'approved');
+
+      // 3. Calculate (Matches main generatePayrollForAll logic)
+      const empTimesheets = (timesheets || []);
+      const standardHours = empTimesheets.reduce((acc, curr) => acc + (curr.hours_worked || 0), 0);
+      const overtimeHours = empTimesheets.reduce((acc, curr) => acc + (curr.overtime_hours || 0), 0);
+      
+      const basePay = Number(emp.base_salary || 0);
+      const hourlyRate = basePay / 160;
+      const overtimePay = overtimeHours * (hourlyRate * 1.5);
+      const totalGross = basePay + overtimePay;
+
+      const bands = emp.currency === 'ZWG' ? ZWG_TAX_BANDS : USD_TAX_BANDS;
+      const { tax, aidsLevy } = calculatePaye(totalGross, bands);
+      const nssa = calculateNssa(totalGross, emp.currency as any);
+      
+      const empLoans = (loans || []);
+      const loanDeduction = empLoans.reduce((acc, curr) => {
+        const principal = curr.amount;
+        const rate = (curr.interest_rate || 0) / 100;
+        const term = curr.installment_count || curr.installments || 1;
+        const totalRepayable = principal + (principal * rate * term);
+        return acc + (totalRepayable / term);
+      }, 0);
+
+      const totalDeductions = tax + aidsLevy + nssa + loanDeduction;
+      const netPay = totalGross - totalDeductions;
+
+      const { error: insertErr } = await supabase.from('payslips').insert({
+        user_id: employeeId,
+        month_year: displayMonth,
+        basic_salary: basePay,
+        base_salary: basePay,
+        standard_hours: standardHours,
+        overtime_hours: overtimeHours,
+        overtime_pay: overtimePay,
+        gross_pay: totalGross,
+        tax_amount: tax,
+        aids_levy: aidsLevy,
+        nssa_deduction: nssa,
+        loan_deductions: loanDeduction,
+        total_deductions: totalDeductions,
+        net_pay: netPay,
+        currency: emp.currency || 'USD',
+        subsidiary_id: emp.subsidiary_id,
+        is_published: false,
+        breakdown: {
+          hourlyRate: hourlyRate.toFixed(2),
+          overtimeRate: (hourlyRate * 1.5).toFixed(2),
+          nssaRate: '4.5%',
+          loanCount: empLoans.length
+        }
+      });
+
+      if (insertErr) throw insertErr;
+
+      toast.success("Record regenerated successfully.");
+      await fetchDraftPayslips();
+    } catch (err) {
+      console.error(err);
+      toast.error("Regeneration failed.");
+    } finally {
+      setProcessing(false);
+      setPayrollStatus(null);
+    }
+  };
+
+  const deleteDraftPayslip = async (id: string) => {
+    if (!window.confirm("Remove this draft payslip?")) return;
+    try {
+      const { error } = await supabase.from('payslips').delete().eq('id', id);
+      if (error) throw error;
+      toast.success("Draft removed");
+      fetchDraftPayslips();
+    } catch (err) {
+      toast.error("Failed to delete draft");
+    }
+  };
+
   const calculateLeaveDays = (start: string, end: string) => {
     const s = new Date(start);
     const e = new Date(end);
@@ -235,7 +434,7 @@ const AdminDashboard: React.FC = () => {
     return Math.ceil(diff / (1000 * 60 * 60 * 24)) + 1;
   };
 
-  const handleStatusUpdate = async (collectionName: string, id: string, status: string, skipRefresh = false) => {
+  const handleStatusUpdate = async (collectionName: string, id: string, status: string, skipRefresh = false, reason?: string) => {
     if (!skipRefresh) setProcessing(true);
     console.log(`Initiating status update: ${collectionName}.${id} -> ${status}`);
     try {
@@ -307,6 +506,12 @@ const AdminDashboard: React.FC = () => {
 
       // Determine valid update fields based on collection schema
       const updatePayload: any = { status };
+      if (reason) {
+        updatePayload.rejection_reason = reason;
+        if (collectionName === 'leave_requests') {
+          updatePayload.manager_feedback = reason;
+        }
+      }
       
       // Tables that support reviewed_at/by tracking
       const trackingTables = ['timesheets', 'leave_requests', 'loan_requests', 'personnel_reviews'];
@@ -331,7 +536,7 @@ const AdminDashboard: React.FC = () => {
         category: 'personnel',
         details: `Updated ${collectionName} status for node ${id} to ${status}.`,
         entityId: id,
-        userName: profile?.fullName || user?.displayName || user?.email || 'Admin',
+        userName: profile?.full_name || user?.email || 'Admin',
         userEmail: user?.email || 'admin@system.local'
       });
 
@@ -341,7 +546,7 @@ const AdminDashboard: React.FC = () => {
         fetchData();
       }
     } catch (err: any) {
-      console.error("Transactional clear failed:", err);
+      console.error("Status update procedure failed:", err);
       if (!skipRefresh) {
         toast.error(`Action failed: ${err.message || 'Unknown protocol error'}`);
       }
@@ -366,7 +571,7 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  const handleBulkStatusUpdate = async (collectionName: string, selectionSet: Set<string>, selectionSetter: React.Dispatch<React.SetStateAction<Set<string>>>, status: string) => {
+  const handleBulkStatusUpdate = async (collectionName: string, selectionSet: Set<string>, selectionSetter: React.Dispatch<React.SetStateAction<Set<string>>>, status: string, reason?: string) => {
     if (selectionSet.size === 0) return;
     setProcessing(true);
     let successCount = 0;
@@ -376,7 +581,7 @@ const AdminDashboard: React.FC = () => {
       // Process one by one to handle balance updates logic in handleStatusUpdate
       for (const id of ids) {
         try {
-          await handleStatusUpdate(collectionName, id, status, true);
+          await handleStatusUpdate(collectionName, id, status, true, reason);
           successCount++;
         } catch (err) {
           console.error(`Bulk item ${id} failed:`, err);
@@ -431,6 +636,7 @@ const AdminDashboard: React.FC = () => {
     const now = new Date();
     const month = now.toISOString().slice(0, 7); // YYYY-MM
     const displayMonth = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+    const groupToProcess = confirmAction?.group || payrollGroupFilter;
     
     setConfirmAction(null);
     setProcessing(true);
@@ -445,11 +651,11 @@ const AdminDashboard: React.FC = () => {
 
       const existingUserIds = new Set((existingPayslips || []).map(d => d.user_id));
       const eligibleEmployees = employees.filter(emp => 
-        !existingUserIds.has(emp.id) && emp.payrollGroup === confirmAction?.group
+        !existingUserIds.has(emp.id) && emp.payrollGroup === groupToProcess
       );
       
       if (eligibleEmployees.length === 0) {
-        setPayrollStatus({ type: 'info', message: `All active personnel in the ${confirmAction?.group} group have existing payslips for this period.` });
+        setPayrollStatus({ type: 'info', message: `All active personnel in the ${groupToProcess} group have existing payslips for this period.` });
         setProcessing(false);
         return;
       }
@@ -492,13 +698,13 @@ const AdminDashboard: React.FC = () => {
 
         const totalDeductions = tax + aidsLevy + nssa + loanDeduction;
         const netPay = totalGross - totalDeductions;
-        const newBalance = (emp.annual_leave_balance || 0) + 2.5;
 
         const { error: payslipErr } = await supabase.from('payslips').insert({
           user_id: emp.id,
           subsidiary_id: emp.subsidiaryId || null,
           month_year: month,
           month_display: displayMonth,
+          basic_salary: basePay,
           base_salary: basePay,
           overtime_pay: overtimePay,
           standard_hours: standardHours,
@@ -522,10 +728,10 @@ const AdminDashboard: React.FC = () => {
         });
 
         if (!payslipErr) {
-          await supabase.from('profiles').update({ 
-            annual_leave_balance: newBalance
-          }).eq('id', emp.id);
           count++;
+        } else {
+          console.error(`Payslip generation failed for ${emp.fullName}:`, payslipErr);
+          toast.error(`Failed to generate payslip for ${emp.fullName}: ${payslipErr.message}`);
         }
       }
       
@@ -533,8 +739,8 @@ const AdminDashboard: React.FC = () => {
         await logAction({
           action: 'Payroll Run Initiation',
           category: 'payroll',
-          details: `Generated ${count} payslips for period ${displayMonth}. Subsidiary: ${subFilter || 'All'}.`,
-          userName: profile?.fullName || user?.displayName,
+          details: `Generated ${count} payslips for period ${displayMonth}. Group: ${groupToProcess}.`,
+          userName: profile?.full_name || user?.email,
           userEmail: user?.email
         });
         setPayrollStatus({ type: 'success', message: `Vault update complete: ${count} payslips generated successfully. Review data before final publication.` });
@@ -555,43 +761,128 @@ const AdminDashboard: React.FC = () => {
   const finalizePayroll = async () => {
     setConfirmAction(null);
     setProcessing(true);
+    setPayrollStatus({ type: 'info', message: 'Finalizing payroll run...' });
+    
     try {
       const month = new Date().toISOString().slice(0, 7);
-      const subIdRaw = subFilter || profile?.subsidiaryId || 'all';
+      const subIdRaw = subFilter || profile?.subsidiary_id || 'all';
       const subId = subIdRaw === 'all' ? null : subIdRaw;
 
       // 1. Create/Update Batch Status
-      await supabase.from('payroll_batches').upsert({
+      const { error: batchError } = await supabase.from('payroll_batches').upsert({
         subsidiary_id: subId,
         month_year: month,
+        payroll_group: payrollGroupFilter,
         status: 'finalized',
         finalized_at: new Date().toISOString(),
         finalized_by: user?.email
-      }, { onConflict: 'subsidiary_id,month_year' });
+      }, { onConflict: 'subsidiary_id,month_year,payroll_group' });
+
+      if (batchError) {
+        console.error('Batch Finalization Error:', batchError);
+        throw new Error(`Batch creation failed: ${batchError.message}`);
+      }
 
       // 2. Publish all draft payslips
-      let q = supabase.from('payslips').update({ is_published: true }).eq('month_year', month).eq('is_published', false);
-      if (subId !== 'all') {
+      let q = supabase.from('payslips')
+        .update({ is_published: true })
+        .eq('month_year', month)
+        .eq('is_published', false);
+        
+      if (subId) {
         q = q.eq('subsidiary_id', subId);
       }
-      const { data, error } = await q.select('*');
+      
+      const { data, error: publishError } = await q.select('*');
 
-      if (error) throw error;
+      if (publishError) {
+        console.error('Publishing Error:', publishError);
+        throw new Error(`Payslip publication failed: ${publishError.message}`);
+      }
+      
       const publishedCount = data?.length || 0;
 
       await logAction({
         action: 'Payroll Finalization',
         category: 'payroll',
-        details: `Finalized and published ${publishedCount} payslips for period ${month}. Subsidiary: ${subId}.`,
-        userName: profile?.fullName || user?.email,
+        details: `Finalized and published ${publishedCount} payslips for period ${month}. Group: ${payrollGroupFilter}.`,
+        userName: profile?.full_name || user?.email,
         userEmail: user?.email
       });
 
       setPayrollStatus({ type: 'success', message: `Payroll successfully Finalized & Published (${publishedCount} records updated).` });
       fetchData();
-    } catch (err) {
-      console.error(err);
-      setPayrollStatus({ type: 'error', message: 'Finalization failed. Internal sync error.' });
+    } catch (err: any) {
+      console.error('Payroll Finalization Failed:', err);
+      setPayrollStatus({ 
+        type: 'error', 
+        message: err.message?.includes('violates unique constraint') 
+          ? 'Finalization failed. A finalized batch already exists for this criteria.'
+          : `Finalization failed: ${err.message || 'Internal sync error'}`
+      });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const unlockVault = async () => {
+    // Security verification
+    const effectivelySuperAdmin = isSuperAdmin || ['lodzax@gmail.com', 'accounts@mineazy.co.zw'].includes(user?.email?.toLowerCase() || '');
+    if (!effectivelySuperAdmin) {
+      toast.error("Security Breach Detect: Unauthorized Vault Access Attempted.");
+      return;
+    }
+
+    const confirmUnlock = window.confirm("SECURITY ALERT: Initiating Vault Unlock Protocol. This will revert publication and allow modifications. Proceed?");
+    if (!confirmUnlock) return;
+
+    setProcessing(true);
+    setPayrollStatus({ type: 'info', message: 'Initiating Decryption & Vault Unlock...' });
+
+    try {
+      const month = new Date().toISOString().slice(0, 7);
+      const subIdRaw = subFilter || profile?.subsidiary_id || 'all';
+      const subId = subIdRaw === 'all' ? null : subIdRaw;
+
+      // 1. Remove the finalized batch record
+      const { error: batchError } = await supabase
+        .from('payroll_batches')
+        .delete()
+        .match({
+          month_year: month,
+          payroll_group: payrollGroupFilter,
+          subsidiary_id: subId
+        });
+
+      if (batchError) throw batchError;
+
+      // 2. Revert payslips to draft status (is_published = false)
+      let q = supabase.from('payslips')
+        .update({ is_published: false })
+        .eq('month_year', month)
+        .eq('is_published', true);
+        
+      if (subId) {
+        q = q.eq('subsidiary_id', subId);
+      }
+
+      const { error: publishError } = await q;
+      if (publishError) throw publishError;
+
+      await logAction({
+        action: 'Vault Unlock',
+        category: 'financial',
+        details: `Unlocked payroll vault for period ${month}. Group: ${payrollGroupFilter}. Reverted records to draft state.`,
+        userName: profile?.full_name || user?.email,
+        userEmail: user?.email
+      });
+
+      toast.success("Vault Unlocked. Draft state restored.");
+      setPayrollStatus({ type: 'success', message: 'Vault Unlocked: High-level access granted. Updates enabled.' });
+      fetchData();
+    } catch (err: any) {
+      console.error('Vault Unlock Failed:', err);
+      toast.error(`Unlock Protocol Failure: ${err.message}`);
     } finally {
       setProcessing(false);
     }
@@ -601,7 +892,7 @@ const AdminDashboard: React.FC = () => {
     setProcessing(true);
     try {
       const month = new Date().toISOString().slice(0, 7);
-      const subIdRaw = subFilter || profile?.subsidiaryId || 'all';
+      const subIdRaw = subFilter || profile?.subsidiary_id || 'all';
       const subId = subIdRaw === 'all' ? null : subIdRaw;
       
       let query = supabase
@@ -627,7 +918,7 @@ const AdminDashboard: React.FC = () => {
           ID: d.id,
           Employee: d.profiles?.full_name || 'N/A',
           Month: d.month_year,
-          'Base Salary': d.basic_salary,
+          'Base Salary': d.base_salary,
           'Hours Worked': d.standard_hours,
           'Overtime Hours': d.overtime_hours,
           'Overtime Pay': d.overtime_pay,
@@ -675,7 +966,7 @@ const AdminDashboard: React.FC = () => {
         action: 'Batch Import Initiation',
         category: 'financial',
         details: `Importing payroll updates from Excel (${file.name}). Pending updates: ${jsonData.length}.`,
-        userName: profile?.fullName || user?.email,
+        userName: profile?.full_name || user?.email,
         userEmail: user?.email
       });
 
@@ -686,7 +977,7 @@ const AdminDashboard: React.FC = () => {
           const { error } = await supabase
             .from('payslips')
             .update({
-              basic_salary: Number(row['Base Salary']),
+              base_salary: Number(row['Base Salary']),
               standard_hours: Number(row['Hours Worked']),
               overtime_hours: Number(row['Overtime Hours']),
               overtime_pay: Number(row['Overtime Pay']),
@@ -728,7 +1019,7 @@ const AdminDashboard: React.FC = () => {
       {/* Overview Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-          <div className="p-3 bg-mine-green/10 rounded-lg text-mine-green">
+          <div className="p-3 bg-mine-blue/10 rounded-lg text-mine-blue">
             <Users size={20} />
           </div>
           <div>
@@ -755,7 +1046,7 @@ const AdminDashboard: React.FC = () => {
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-          <div className="p-3 bg-mine-gold/10 rounded-lg text-mine-gold">
+          <div className="p-3 bg-mine-blue/10 rounded-lg text-mine-blue">
             <ShieldCheck size={20} />
           </div>
           <div>
@@ -768,21 +1059,27 @@ const AdminDashboard: React.FC = () => {
       <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl w-fit">
         <button 
           onClick={() => setActiveTab('run')}
-          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'run' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'run' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
         >
           Payroll Run
         </button>
         <button 
           onClick={() => setActiveTab('batches')}
-          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'batches' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'batches' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
         >
           Batch Management
         </button>
         <button 
           onClick={() => setActiveTab('reports')}
-          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'reports' ? 'bg-white text-mine-green shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'reports' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
         >
           Insights & Reports
+        </button>
+        <button 
+          onClick={() => setActiveTab('help')}
+          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'help' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Help & Workflow
         </button>
       </div>
 
@@ -809,6 +1106,17 @@ const AdminDashboard: React.FC = () => {
           </motion.div>
         )}
 
+        {activeTab === 'help' && (
+          <motion.div
+            key="help"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+          >
+            <PayrollGuide />
+          </motion.div>
+        )}
+
         {activeTab === 'run' && (
           <motion.div
             key="run"
@@ -818,23 +1126,43 @@ const AdminDashboard: React.FC = () => {
             className="space-y-8"
           >
             {/* Stats and Queues nested here */}
+            <AnimatePresence>
+              {showGuide && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden mb-8"
+                >
+                  <PayrollGuide />
+                </motion.div>
+              )}
+            </AnimatePresence>
             <div className="space-y-8">
               <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-extrabold text-mine-green flex items-center gap-2 uppercase tracking-tight">
+          <h1 className="text-xl font-extrabold text-mine-blue flex items-center gap-2 uppercase tracking-tight">
             <ShieldCheck size={20} /> Payroll Control Center
+            <button 
+              onClick={() => setShowGuide(!showGuide)}
+              className={`ml-4 p-2 rounded-xl border transition-all flex items-center gap-2 ${showGuide ? 'bg-mine-blue text-white border-mine-blue shadow-lg shadow-mine-blue/20' : 'bg-white text-gray-400 border-gray-100 hover:border-mine-blue/30 hover:text-mine-blue'}`}
+              title="Payroll Execution Guide"
+            >
+              <HelpCircle size={16} />
+              <span className="text-[9px] font-black uppercase tracking-widest leading-none">Workflow Help</span>
+            </button>
           </h1>
           <p className="text-xs text-gray-500 font-medium">Monitoring and processing Mineazy solution operations</p>
         </div>
         <div className="flex flex-col md:flex-row items-end gap-3">
           <div className="relative group min-w-[300px]">
-             <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-mine-green transition-colors" size={16} />
+             <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-mine-blue transition-colors" size={16} />
              <input 
                type="text"
                placeholder="Global Search (Name, Status, Reason...)"
                value={globalSearch}
                onChange={(e) => setGlobalSearch(e.target.value)}
-               className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 shadow-sm rounded text-xs outline-none focus:ring-1 focus:ring-mine-green transition-all"
+               className="w-full pl-10 pr-4 py-2 bg-white border border-gray-200 shadow-sm rounded text-xs outline-none focus:ring-1 focus:ring-mine-blue transition-all"
              />
           </div>
           <div className="flex flex-col items-end">
@@ -842,7 +1170,7 @@ const AdminDashboard: React.FC = () => {
             <select 
               value={payrollGroupFilter}
               onChange={(e) => setPayrollGroupFilter(e.target.value)}
-              className="bg-white border border-gray-200 rounded px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-green min-w-[150px]"
+              className="bg-white border border-gray-200 rounded px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue min-w-[150px]"
             >
               <option value="General">General Staff</option>
               <option value="Management">Management</option>
@@ -854,7 +1182,7 @@ const AdminDashboard: React.FC = () => {
               <select 
                 value={subFilter}
                 onChange={(e) => setSubFilter(e.target.value)}
-                className="bg-white border border-gray-200 rounded px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-green min-w-[200px]"
+                className="bg-white border border-gray-200 rounded px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue min-w-[200px]"
               >
                 <option value="">All Subsidiaries</option>
                 {subsidiaries.map(s => (
@@ -870,7 +1198,7 @@ const AdminDashboard: React.FC = () => {
                   <button 
                     onClick={initiateGeneratePayroll}
                     disabled={processing}
-                    className="btn btn-outline !text-sm !py-3 !px-8 flex items-center gap-2 group transition-all border-mine-green text-mine-green hover:bg-mine-green hover:text-white"
+                    className="btn btn-outline !text-sm !py-3 !px-8 flex items-center gap-2 group transition-all border-mine-blue text-mine-blue hover:bg-mine-blue hover:text-white"
                   >
                     {processing ? <RefreshCw className="animate-spin" size={18} /> : <Calculator className="group-hover:rotate-12 transition-transform" size={18} />}
                     Run Draft Payroll
@@ -922,14 +1250,24 @@ const AdminDashboard: React.FC = () => {
                     </div>
                   </div>
                   {isSuperAdmin && (
-                    <button 
-                      onClick={initiateFinalizePayroll}
-                      disabled={processing}
-                      className="text-[9px] font-black uppercase text-mine-green hover:underline flex items-center gap-1"
-                    >
-                      <RefreshCw size={10} className={processing ? 'animate-spin' : ''} />
-                      Force Publication Sync
-                    </button>
+                    <div className="flex gap-4">
+                      <button 
+                        onClick={initiateFinalizePayroll}
+                        disabled={processing}
+                        className="text-[9px] font-black uppercase text-mine-green hover:underline flex items-center gap-1"
+                      >
+                        <RefreshCw size={10} className={processing ? 'animate-spin' : ''} />
+                        Force Publication Sync
+                      </button>
+                      <button 
+                        onClick={unlockVault}
+                        disabled={processing}
+                        className="text-[9px] font-black uppercase text-red-500 hover:underline flex items-center gap-1"
+                      >
+                        <AlertTriangle size={10} />
+                        Unlock Vault (Reset Batch)
+                      </button>
+                    </div>
                   )}
                 </div>
             )}
@@ -954,6 +1292,80 @@ const AdminDashboard: React.FC = () => {
         </div>
       </header>
 
+      {/* READINESS SUMMARY CARD */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 overflow-hidden relative group">
+        <div className="absolute top-0 right-0 p-8 opacity-[0.03] scale-150 rotate-12 group-hover:scale-[1.6] transition-transform pointer-events-none">
+          <ShieldCheck size={120} />
+        </div>
+        
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+          <div className="flex items-center gap-4">
+            <div className={`p-4 rounded-2xl ${readinessMetrics.pendingTimesheets === 0 ? 'bg-green-50 text-green-600' : 'bg-amber-50 text-amber-600'}`}>
+              {readinessMetrics.pendingTimesheets === 0 ? <CheckCircle size={32} /> : <AlertTriangle size={32} />}
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Readiness & Integrity Matrix</h2>
+              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Dataset verification for {new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</p>
+            </div>
+          </div>
+          
+          <div className="flex flex-wrap gap-2">
+            <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 ${readinessMetrics.pendingTimesheets === 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+              <div className={`w-2 h-2 rounded-full ${readinessMetrics.pendingTimesheets === 0 ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
+              <span className="text-[10px] font-black uppercase tracking-widest">Timesheets: {readinessMetrics.pendingTimesheets === 0 ? 'CLEAN' : 'PENDING'}</span>
+            </div>
+            <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 ${readinessMetrics.pendingLoans === 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+              <div className={`w-2 h-2 rounded-full ${readinessMetrics.pendingLoans === 0 ? 'bg-green-500' : 'bg-amber-500'}`} />
+              <span className="text-[10px] font-black uppercase tracking-widest">Loans: {readinessMetrics.pendingLoans === 0 ? 'PROCESSED' : 'OUTSTANDING'}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Approved Coverage</p>
+              <span className="text-[10px] font-mono font-bold text-gray-900">
+                {Math.round((readinessMetrics.approvedTimesheets / Math.max(1, readinessMetrics.totalEmployees)) * 100)}%
+              </span>
+            </div>
+            <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: `${(readinessMetrics.approvedTimesheets / Math.max(1, readinessMetrics.totalEmployees)) * 100}%` }}
+                className={`h-full ${readinessMetrics.approvedTimesheets === readinessMetrics.totalEmployees ? 'bg-green-500' : 'bg-blue-500'}`}
+              />
+            </div>
+            <p className="text-[8px] text-gray-400 font-bold uppercase">{readinessMetrics.approvedTimesheets} / {readinessMetrics.totalEmployees} Personnel Verified</p>
+          </div>
+
+          <div className="space-y-1 border-l border-gray-100 pl-6">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Pending Submissions</p>
+            <p className={`text-xl font-black font-mono ${readinessMetrics.pendingTimesheets > 0 ? 'text-red-500' : 'text-gray-900'}`}>{readinessMetrics.pendingTimesheets}</p>
+            <p className="text-[8px] text-gray-400 font-bold uppercase italic">Affects gross calcs</p>
+          </div>
+
+          <div className="space-y-1 border-l border-gray-100 pl-6">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Open Credit Req.</p>
+            <p className={`text-xl font-black font-mono ${readinessMetrics.pendingLoans > 0 ? 'text-amber-500' : 'text-gray-900'}`}>{readinessMetrics.pendingLoans}</p>
+            <p className="text-[8px] text-gray-400 font-bold uppercase italic">Loan ledger sync</p>
+          </div>
+
+          <div className="space-y-1 border-l border-gray-100 pl-6">
+            <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Leave Sync</p>
+            <p className={`text-xl font-black font-mono ${readinessMetrics.pendingLeave > 0 ? 'text-amber-500' : 'text-gray-900'}`}>{readinessMetrics.pendingLeave}</p>
+            <p className="text-[8px] text-gray-400 font-bold uppercase italic">Accrual data</p>
+          </div>
+        </div>
+
+        {readinessMetrics.pendingTimesheets > 0 && (
+          <div className="mt-8 bg-red-50/50 border border-red-100 rounded-xl p-4 flex items-center gap-3 text-red-700 animate-pulse">
+            <FileWarning size={18} />
+            <p className="text-[10px] font-bold uppercase tracking-tight">Warning: {readinessMetrics.pendingTimesheets} personnel have not had their timesheets approved. Generating payroll now will lead to incomplete salary calculations.</p>
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Timesheet Approval Queue */}
         <section className="card !p-0 overflow-hidden">
@@ -961,7 +1373,7 @@ const AdminDashboard: React.FC = () => {
             <div className="flex items-center gap-3">
               <input 
                  type="checkbox" 
-                 className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                 className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                  checked={filteredTimesheets.length > 0 && selectedTimesheets.size === filteredTimesheets.length}
                  onChange={() => toggleSelectAllItems(filteredTimesheets, selectedTimesheets, setSelectedTimesheets)}
               />
@@ -982,7 +1394,7 @@ const AdminDashboard: React.FC = () => {
                   Approve ({selectedTimesheets.size})
                 </button>
                 <button 
-                   onClick={() => handleBulkStatusUpdate('timesheets', selectedTimesheets, setSelectedTimesheets, 'rejected')}
+                   onClick={() => setRejectionModal({ collection: 'timesheets', id: '', selectionSet: selectedTimesheets, selectionSetter: setSelectedTimesheets })}
                    className="px-3 py-1 bg-red-600 text-white text-[9px] font-black uppercase rounded hover:bg-red-700 transition-colors"
                 >
                   Reject
@@ -998,7 +1410,7 @@ const AdminDashboard: React.FC = () => {
                   <div className="flex items-center gap-3 max-w-[70%]">
                     <input 
                        type="checkbox" 
-                       className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                       className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                        checked={selectedTimesheets.has(t.id)}
                        onChange={() => toggleSelection(t.id, selectedTimesheets, setSelectedTimesheets)}
                     />
@@ -1006,7 +1418,7 @@ const AdminDashboard: React.FC = () => {
                       <p className="text-xs font-bold text-gray-900">{emp?.fullName || 'Unknown Staff'}</p>
                       <div className="flex items-center gap-2">
                         <span className="text-[9px] font-mono font-bold text-gray-400">{t.date}</span>
-                        <span className="text-[10px] font-black text-mine-green uppercase tracking-tighter">
+                        <span className="text-[10px] font-black text-mine-blue uppercase tracking-tighter">
                           {t.hours_worked}h Std + {t.overtime_hours}h OT
                         </span>
                       </div>
@@ -1020,7 +1432,7 @@ const AdminDashboard: React.FC = () => {
                       <Check size={12} />
                     </button>
                     <button 
-                      onClick={() => handleStatusUpdate('timesheets', t.id, 'rejected')}
+                      onClick={() => setRejectionModal({ collection: 'timesheets', id: t.id })}
                       className="p-1.5 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
                     >
                       <X size={12} />
@@ -1047,13 +1459,13 @@ const AdminDashboard: React.FC = () => {
             <div className="flex items-center gap-3">
               <input 
                  type="checkbox" 
-                 className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                 className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                  checked={filteredLeave.length > 0 && selectedLeaveRequests.size === filteredLeave.length}
                  onChange={() => toggleSelectAllItems(filteredLeave, selectedLeaveRequests, setSelectedLeaveRequests)}
               />
               <h3 className="font-bold uppercase tracking-widest text-[10px] text-gray-400">Leave Requests</h3>
               <span className="badge bg-orange-50 text-orange-600 border border-orange-100 font-mono text-[9px] uppercase font-bold">
-                {filteredLeave.length} Waiting
+                {filteredLeave.length} Awaiting Approval
               </span>
               <span className="badge bg-white text-slate-500 border border-slate-100 font-mono text-[9px] uppercase font-bold">
                 {filteredLeave.reduce((acc, lv) => acc + calculateLeaveDays(lv.start_date, lv.end_date), 0)} Est. Days
@@ -1068,7 +1480,7 @@ const AdminDashboard: React.FC = () => {
                   Approve ({selectedLeaveRequests.size})
                 </button>
                 <button 
-                   onClick={() => handleBulkStatusUpdate('leave_requests', selectedLeaveRequests, setSelectedLeaveRequests, 'rejected')}
+                   onClick={() => setRejectionModal({ collection: 'leave_requests', id: '', selectionSet: selectedLeaveRequests, selectionSetter: setSelectedLeaveRequests })}
                    className="px-3 py-1 bg-red-600 text-white text-[9px] font-black uppercase rounded hover:bg-red-700 transition-colors"
                 >
                   Reject
@@ -1084,12 +1496,17 @@ const AdminDashboard: React.FC = () => {
                   <div className="flex items-center gap-3 max-w-[70%]">
                     <input 
                        type="checkbox" 
-                       className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                       className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                        checked={selectedLeaveRequests.has(lv.id)}
                        onChange={() => toggleSelection(lv.id, selectedLeaveRequests, setSelectedLeaveRequests)}
                     />
                     <div>
-                      <p className="text-xs font-bold text-gray-900">{emp?.fullName || 'Unknown Staff'}</p>
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <p className="text-xs font-bold text-gray-900">{emp?.fullName || 'Unknown Staff'}</p>
+                        {lv.status === 'pending_approval' && (
+                          <span className="text-[7px] font-black bg-amber-100 text-amber-700 px-1 rounded border border-amber-200 uppercase tracking-tighter">Review Req.</span>
+                        )}
+                      </div>
                       <div className="flex items-center gap-2">
                         <span className="text-[9px] font-black text-gray-400 uppercase">{lv.type}</span>
                         <span className="text-[9px] font-mono font-bold text-orange-600">{lv.start_date} &gt; {lv.end_date}</span>
@@ -1104,7 +1521,7 @@ const AdminDashboard: React.FC = () => {
                       <Check size={12} />
                     </button>
                     <button 
-                      onClick={() => handleStatusUpdate('leave_requests', lv.id, 'rejected')}
+                      onClick={() => setRejectionModal({ collection: 'leave_requests', id: lv.id })}
                       className="p-1.5 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
                     >
                       <X size={12} />
@@ -1131,7 +1548,7 @@ const AdminDashboard: React.FC = () => {
             <div className="flex items-center gap-3">
               <input 
                  type="checkbox" 
-                 className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                 className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                  checked={filteredLoans.length > 0 && selectedLoanRequests.size === filteredLoans.length}
                  onChange={() => toggleSelectAllItems(filteredLoans, selectedLoanRequests, setSelectedLoanRequests)}
               />
@@ -1149,7 +1566,7 @@ const AdminDashboard: React.FC = () => {
                   Approve ({selectedLoanRequests.size})
                 </button>
                 <button 
-                   onClick={() => handleBulkStatusUpdate('loan_requests', selectedLoanRequests, setSelectedLoanRequests, 'rejected')}
+                   onClick={() => setRejectionModal({ collection: 'loan_requests', id: '', selectionSet: selectedLoanRequests, selectionSetter: setSelectedLoanRequests })}
                    className="px-3 py-1 bg-red-600 text-white text-[9px] font-black uppercase rounded hover:bg-red-700 transition-colors"
                 >
                   Reject
@@ -1165,7 +1582,7 @@ const AdminDashboard: React.FC = () => {
                   <div className="flex items-center gap-3 max-w-[70%]">
                     <input 
                        type="checkbox" 
-                       className="w-4 h-4 rounded border-gray-300 text-mine-green focus:ring-mine-green cursor-pointer"
+                       className="w-4 h-4 rounded border-gray-300 text-mine-blue focus:ring-mine-blue cursor-pointer"
                        checked={selectedLoanRequests.has(l.id)}
                        onChange={() => toggleSelection(l.id, selectedLoanRequests, setSelectedLoanRequests)}
                     />
@@ -1190,7 +1607,7 @@ const AdminDashboard: React.FC = () => {
                       <Check size={14} />
                     </button>
                     <button 
-                      onClick={() => handleStatusUpdate('loan_requests', l.id, 'rejected')}
+                      onClick={() => setRejectionModal({ collection: 'loan_requests', id: l.id })}
                       className="p-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100"
                     >
                       <X size={14} />
@@ -1209,6 +1626,118 @@ const AdminDashboard: React.FC = () => {
           />
         </section>
 
+        {/* PAYROLL MATRIX - DRAFT REVIEW */}
+        <section className="card lg:col-span-2 !p-0 overflow-hidden bg-white border border-gray-100 shadow-sm">
+          <div className="flex items-center justify-between p-6 bg-slate-900 text-white">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
+                <Calculator size={20} />
+              </div>
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest">Draft Payroll Matrix</h3>
+                <p className="text-[10px] opacity-70 font-bold uppercase tracking-widest">Review {draftPayslips.length} generated node results</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+               <div className="text-right hidden md:block">
+                  <p className="text-[9px] opacity-50 font-black uppercase tracking-widest">Total Projected Net</p>
+                  <p className="text-sm font-black font-mono">USD {draftPayslips.reduce((acc, p) => acc + (p.net_pay || 0), 0).toLocaleString()}</p>
+               </div>
+               <button 
+                onClick={fetchDraftPayslips}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                title="Refresh Matrix"
+               >
+                 <RefreshCw size={18} />
+               </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="bg-gray-50/50 border-b border-gray-100">
+                   <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest">Employee Profile</th>
+                   <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest text-right">Base Salary</th>
+                   <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest text-right">Hrs (Std/OT)</th>
+                   <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest text-right text-mine-green">Gross Pay</th>
+                   <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest text-right text-red-500">Ded. (Tax/Loan)</th>
+                   <th className="px-6 py-4 text-[10px] font-black text-gray-900 uppercase tracking-widest text-right">Net Salary</th>
+                   <th className="px-6 py-4 text-right"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 text-xs">
+                {draftPayslips.map(p => (
+                  <tr key={p.id} className="hover:bg-gray-50/30 transition-colors group">
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-black text-gray-500 group-hover:bg-mine-blue group-hover:text-white transition-colors uppercase">
+                          {(p.profiles?.full_name || '?').charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-black text-gray-900 uppercase tracking-tight">{p.profiles?.full_name}</p>
+                          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{p.profiles?.job_title}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right font-mono text-gray-600">
+                      {p.currency} {p.base_salary?.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex flex-col items-end">
+                        <span className="font-mono font-bold text-gray-900">{p.standard_hours}h</span>
+                        <span className="text-[9px] font-black text-mine-green uppercase tracking-tighter">+{p.overtime_hours}h OT</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right font-mono font-black text-mine-green">
+                      {p.currency} {p.gross_pay?.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex flex-col items-end font-mono">
+                        <span className="text-red-500 font-bold">-{p.tax_amount?.toLocaleString()} PAYE</span>
+                        <span className="text-[9px] text-orange-600 font-black tracking-tighter">-{p.loan_deductions?.toLocaleString()} LOAN</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="py-2 px-4 rounded-lg bg-gray-50 border border-gray-100 inline-block">
+                        <span className="text-sm font-black font-mono text-gray-900">{p.currency} {p.net_pay?.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => regenerateSinglePayslip(p.user_id)}
+                          className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                          title="Recompute calculation for this node"
+                        >
+                          <RefreshCw size={14} />
+                        </button>
+                        <button 
+                          onClick={() => deleteDraftPayslip(p.id)}
+                          className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                          title="Purge draft record"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {draftPayslips.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-12 text-center text-gray-400 italic">
+                      <div className="flex flex-col items-center gap-3">
+                        <Briefcase size={32} className="opacity-10" />
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em]">Ready for batch deployment. No draft nodes generated yet.</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         {/* ZIMRA Tax Calculator */}
         <div>
           <TaxCalculator />
@@ -1220,6 +1749,72 @@ const AdminDashboard: React.FC = () => {
       </AnimatePresence>
 
       <AnimatePresence>
+        {rejectionModal && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4">
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-gray-100"
+            >
+              <div className="p-6 bg-red-50 flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
+                  <X size={24} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-gray-900 uppercase tracking-tighter">
+                    Rejection Feedback
+                  </h3>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Provide a reason for the employee</p>
+                </div>
+              </div>
+
+              <div className="p-8 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Reason for Rejection</label>
+                  <textarea 
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    placeholder="E.g., Incomplete documentation, Missing hours verification..."
+                    className="w-full bg-gray-50 border border-gray-100 rounded-xl px-4 py-3 text-xs min-h-[120px] focus:ring-1 focus:ring-red-500 outline-none transition-all resize-none font-medium"
+                    required
+                  />
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button 
+                    onClick={() => {
+                      setRejectionModal(null);
+                      setRejectionReason('');
+                    }}
+                    className="flex-1 px-6 py-3 rounded-xl border border-gray-200 text-gray-500 text-xs font-black uppercase tracking-widest hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    disabled={!rejectionReason.trim() || processing}
+                    onClick={async () => {
+                      if (!rejectionModal) return;
+                      if (rejectionModal.selectionSet && rejectionModal.selectionSetter) {
+                        await handleBulkStatusUpdate(rejectionModal.collection, rejectionModal.selectionSet, rejectionModal.selectionSetter, 'rejected', rejectionReason);
+                      } else {
+                        await handleStatusUpdate(rejectionModal.collection, rejectionModal.id, 'rejected', false, rejectionReason);
+                      }
+                      setRejectionModal(null);
+                      setRejectionReason('');
+                    }}
+                    className="flex-1 px-6 py-3 rounded-xl bg-red-600 text-white text-xs font-black uppercase tracking-widest shadow-lg shadow-red-600/20 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    Confirm Rejection
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {confirmAction && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4">
             <motion.div 
@@ -1228,8 +1823,8 @@ const AdminDashboard: React.FC = () => {
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
               className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden border border-gray-100"
             >
-              <div className={`p-6 flex items-center gap-4 ${confirmAction.type === 'final' ? 'bg-red-50' : 'bg-mine-green/5'}`}>
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${confirmAction.type === 'final' ? 'bg-red-100 text-red-600' : 'bg-mine-green/10 text-mine-green'}`}>
+               <div className={`p-6 flex items-center gap-4 ${confirmAction.type === 'final' ? 'bg-red-50' : 'bg-mine-blue/5'}`}>
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${confirmAction.type === 'final' ? 'bg-red-100 text-red-600' : 'bg-mine-blue/10 text-mine-blue'}`}>
                   {confirmAction.type === 'final' ? <AlertTriangle size={24} /> : <Calculator size={24} />}
                 </div>
                 <div>
@@ -1238,7 +1833,7 @@ const AdminDashboard: React.FC = () => {
                   </h3>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Period: {confirmAction.monthDisplay}</p>
                   {confirmAction.type === 'draft' && (
-                    <p className="text-[10px] font-black text-mine-green uppercase tracking-widest">Group: {confirmAction.group}</p>
+                    <p className="text-[10px] font-black text-mine-blue uppercase tracking-widest">Group: {confirmAction.group}</p>
                   )}
                 </div>
               </div>

@@ -213,7 +213,7 @@ const PayslipList: React.FC = () => {
                 {/* Header Actions */}
                 <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-mine-green/10 flex items-center justify-center text-mine-green">
+                    <div className="w-10 h-10 rounded-xl bg-mine-blue/10 flex items-center justify-center text-mine-blue">
                       <FileText size={20} />
                     </div>
                     <div>
@@ -224,7 +224,7 @@ const PayslipList: React.FC = () => {
                   <div className="flex gap-2">
                     <button 
                       onClick={handlePrint}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-600 hover:text-mine-green hover:border-mine-green/30 transition-all text-[10px] font-black uppercase tracking-widest shadow-sm"
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-600 hover:text-mine-blue hover:border-mine-blue/30 transition-all text-[10px] font-black uppercase tracking-widest shadow-sm"
                     >
                       <Printer size={14} />
                       Print
@@ -317,7 +317,7 @@ const PayslipList: React.FC = () => {
                             <div className="flex justify-between items-center text-sm border-b border-gray-50 pb-2">
                               <div>
                                 <span className="text-gray-500 font-sans text-xs">Overtime Allowance</span>
-                                <p className="text-[8px] font-bold text-mine-green uppercase tracking-widest">{selectedPayslip.overtimeHours} Hours @ 1.5x Rate</p>
+                                <p className="text-[8px] font-bold text-mine-blue uppercase tracking-widest">{selectedPayslip.overtimeHours} Hours @ 1.5x Rate</p>
                               </div>
                               <span className="font-bold text-gray-900">{selectedPayslip.overtimePay.toFixed(2)}</span>
                             </div>

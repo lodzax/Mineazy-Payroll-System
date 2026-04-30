@@ -111,8 +111,8 @@ const PayrollBatchManagement: React.FC = () => {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'finalized': return 'bg-green-50 text-green-700 border-green-200';
-      case 'processing': return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'finalized': return 'bg-blue-50 text-blue-700 border-blue-200';
+      case 'processing': return 'bg-sky-50 text-sky-700 border-sky-200';
       default: return 'bg-orange-50 text-orange-700 border-orange-200';
     }
   };
@@ -120,7 +120,7 @@ const PayrollBatchManagement: React.FC = () => {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'finalized': return <CheckCircle2 size={12} />;
-      case 'processing': return <Clock size={12} className="animate-spin-slow" />;
+      case 'processing': return <Clock size={12} className="animate-pulse" />;
       default: return <AlertCircle size={12} />;
     }
   };
@@ -130,7 +130,7 @@ const PayrollBatchManagement: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-black text-gray-900 uppercase tracking-tight flex items-center gap-2">
-            <Archive size={20} className="text-mine-green" /> Financial Batches
+            <Archive size={20} className="text-mine-blue" /> Financial Batches
           </h2>
           <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Active nodes for payroll lifecycle management</p>
         </div>
@@ -147,7 +147,7 @@ const PayrollBatchManagement: React.FC = () => {
           <div key={batch.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-all group">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className={`p-3 rounded-lg ${batch.status === 'finalized' ? 'bg-green-50 text-green-600' : 'bg-gray-50 text-gray-400'}`}>
+                <div className={`p-3 rounded-lg ${batch.status === 'finalized' ? 'bg-blue-50 text-mine-blue' : 'bg-gray-50 text-gray-400'}`}>
                   <Layers size={20} />
                 </div>
                 <div>
@@ -158,7 +158,7 @@ const PayrollBatchManagement: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mt-1">
-                    <p className="text-[10px] text-gray-500 font-bold">GROUP: <span className="text-mine-green">{batch.payroll_group}</span></p>
+                    <p className="text-[10px] text-gray-500 font-bold">GROUP: <span className="text-mine-blue tracking-tighter">{batch.payroll_group}</span></p>
                     <p className="text-[10px] text-gray-500 font-bold">NODE: <span className="text-mine-gold">{!batch.subsidiary_id ? 'GLOBAL' : subsidiaries.find(s => s.id === batch.subsidiary_id)?.name || 'LOCAL'}</span></p>
                   </div>
                 </div>
@@ -194,7 +194,7 @@ const PayrollBatchManagement: React.FC = () => {
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="bg-mine-green p-6 text-white">
+            <div className="bg-mine-blue p-6 text-white shadow-lg shadow-blue-200">
               <h3 className="text-lg font-black uppercase tracking-tight">Initialize New Payroll Batch</h3>
               <p className="text-[10px] opacity-80 uppercase tracking-widest font-bold">Define processing parameters for node synchronization</p>
             </div>
@@ -206,7 +206,7 @@ const PayrollBatchManagement: React.FC = () => {
                   required
                   value={form.month}
                   onChange={e => setForm({...form, month: e.target.value})}
-                  className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold"
+                  className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -215,7 +215,7 @@ const PayrollBatchManagement: React.FC = () => {
                   <select 
                     value={form.group}
                     onChange={e => setForm({...form, group: e.target.value})}
-                    className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold"
+                    className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold"
                   >
                     <option value="General">General Staff</option>
                     <option value="Management">Management</option>
@@ -226,7 +226,7 @@ const PayrollBatchManagement: React.FC = () => {
                   <select 
                     value={form.subsidiaryId}
                     onChange={e => setForm({...form, subsidiaryId: e.target.value})}
-                    className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold"
+                    className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold"
                   >
                     <option value="">{isSuperAdmin ? 'Global (All)' : 'Current Subsidiary'}</option>
                     {isSuperAdmin && subsidiaries.map(s => (
@@ -241,20 +241,20 @@ const PayrollBatchManagement: React.FC = () => {
                   value={form.notes}
                   onChange={e => setForm({...form, notes: e.target.value})}
                   placeholder="e.g., Q1 Special Bonus Inclusion..."
-                  className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-xs outline-none focus:ring-1 focus:ring-mine-green font-medium h-24"
+                  className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-xs outline-none focus:ring-1 focus:ring-mine-blue font-medium h-24"
                 />
               </div>
               <div className="flex gap-2 pt-4">
                 <button 
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-gray-200"
+                  className="flex-1 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-gray-200 transition-colors"
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-mine-green text-white rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-mine-green-dark"
+                  className="flex-1 px-4 py-2 bg-mine-blue text-white rounded-lg text-xs font-bold uppercase tracking-widest transition-all hover:brightness-110 shadow-lg shadow-blue-100"
                 >
                   Create Batch
                 </button>

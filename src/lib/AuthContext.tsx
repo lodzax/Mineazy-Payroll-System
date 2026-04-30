@@ -30,12 +30,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else setLoading(false);
-    });
+    const initSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Session retrieval error:', error);
+          if (error.message.includes('Encryption') || error.message.includes('decryption')) {
+            // Local storage might be corrupted
+            localStorage.removeItem('mineazy-auth-token');
+            window.location.reload();
+            return;
+          }
+          throw error;
+        }
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) fetchProfile(session.user.id);
+        else setLoading(false);
+      } catch (err) {
+        console.error('Auth initialization failed:', err);
+        setLoading(false);
+      }
+    };
+
+    initSession();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -51,7 +69,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, retryCount = 0) => {
+    let success = false;
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -61,11 +80,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (error) throw error;
       setProfile(data);
-    } catch (err) {
-      console.error('Error fetching profile:', err);
-    } finally {
-      setLoading(false);
+      success = true;
+    } catch (err: any) {
+      console.error(`Error fetching profile (attempt ${retryCount + 1}):`, err);
+      
+      // If it's a network/fetch error, retry up to 3 times
+      if (retryCount < 3 && (err.message === 'Failed to fetch' || err.name === 'TypeError')) {
+        const delay = Math.pow(2, retryCount + 1) * 800; // Faster backoff for better UX
+        setTimeout(() => fetchProfile(userId, retryCount + 1), delay);
+        return; // Exit here, let the next call handle setLoading(false)
+      }
     }
+    
+    // If we're here, we either succeeded or reached max retries
+    setLoading(false);
   };
 
   const signOut = async () => {

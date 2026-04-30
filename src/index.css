@@ -6,7 +6,7 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
   /* High Density Theme Colors */
-  --color-mine-green: #064e3b; /* Deep Emerald */
+  --color-mine-blue: #0018F9; /* High Intensity Blue */
   --color-mine-gold: #d4af37;  /* Metallic Gold */
   --color-mine-metal: #475569; /* Slate Gray */
   --color-app-bg: #f8fafc;
@@ -39,7 +39,7 @@
   }
   
   .stat-val {
-    @apply text-xl font-bold text-mine-green font-mono;
+    @apply text-xl font-bold text-mine-blue font-mono;
   }
   
   .stat-label {
@@ -51,7 +51,7 @@
   }
   
   .btn-primary {
-    @apply bg-mine-green text-white shadow-sm hover:shadow-md;
+    @apply bg-mine-blue text-white shadow-sm hover:shadow-md;
   }
   
   .btn-outline {

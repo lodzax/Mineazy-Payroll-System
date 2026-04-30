@@ -128,17 +128,17 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-8 flex flex-col gap-6">
           <section className="card">
-            <div className="card-title text-mine-green flex items-center justify-between">
+            <div className="card-title text-mine-blue flex items-center justify-between">
               Performance Insights
               <button 
                 onClick={() => setActiveTab('performance')}
-                className="text-[10px] font-black uppercase tracking-widest text-mine-green hover:underline"
+                className="text-[10px] font-black uppercase tracking-widest text-mine-blue hover:underline"
               >
                 View Full Matrix
               </button>
             </div>
-            <div className="p-4 bg-green-50/50 rounded-xl border border-green-100 flex items-center gap-4">
-               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-mine-green shadow-sm"><Target size={20} /></div>
+            <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 flex items-center gap-4">
+               <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-mine-blue shadow-sm"><Target size={20} /></div>
                <div>
                   <p className="text-xs font-black text-slate-900 uppercase tracking-widest mb-0.5">Development Roadmap</p>
                   <p className="text-[10px] text-gray-500 leading-tight">Access your finalized evaluation matrices and strategic growth objectives.</p>
@@ -167,9 +167,9 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
                       <td className="py-3 font-semibold text-gray-800 uppercase tracking-tight text-[11px]">{act.actType}</td>
                       <td className="py-3">
                         <span className={`badge ${
-                          act.status === 'approved' ? 'bg-green-100 text-green-700 border border-green-200' : 
+                          act.status === 'approved' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 
                           act.status === 'rejected' ? 'bg-red-100 text-red-700 border border-red-200' : 
-                          'bg-blue-100 text-blue-700 border border-blue-200'
+                          'bg-slate-100 text-slate-700 border border-slate-200'
                         }`}>
                           {act.status}
                         </span>
@@ -219,30 +219,30 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
             <div className="grid grid-cols-2 gap-2">
               <div 
                 onClick={() => setActiveTab('timesheets')}
-                className="p-3 border border-border rounded-md text-center hover:bg-green-50 hover:border-mine-green transition-all cursor-pointer group"
+                className="p-3 border border-border rounded-md text-center hover:bg-blue-50 hover:border-mine-blue transition-all cursor-pointer group"
               >
-                <div className="flex justify-center mb-1 text-gray-400 group-hover:text-mine-green"><Clock size={16} /></div>
+                <div className="flex justify-center mb-1 text-gray-400 group-hover:text-mine-blue"><Clock size={16} /></div>
                 <div className="font-bold text-[10px] uppercase leading-tight">Submit<br/>Timesheet</div>
               </div>
               <div 
                 onClick={() => setActiveTab('leave')}
-                className="p-3 border border-border rounded-md text-center hover:bg-green-50 hover:border-mine-green transition-all cursor-pointer group"
+                className="p-3 border border-border rounded-md text-center hover:bg-blue-50 hover:border-mine-blue transition-all cursor-pointer group"
               >
-                <div className="flex justify-center mb-1 text-gray-400 group-hover:text-mine-green"><CalendarDays size={16} /></div>
+                <div className="flex justify-center mb-1 text-gray-400 group-hover:text-mine-blue"><CalendarDays size={16} /></div>
                 <div className="font-bold text-[10px] uppercase leading-tight">Apply<br/>For Leave</div>
               </div>
               <div 
                 onClick={() => setActiveTab('loans')}
-                className="p-3 border border-border rounded-md text-center hover:bg-green-50 hover:border-mine-green transition-all cursor-pointer group"
+                className="p-3 border border-border rounded-md text-center hover:bg-blue-50 hover:border-mine-blue transition-all cursor-pointer group"
               >
-                <div className="flex justify-center mb-1 text-gray-400 group-hover:text-mine-green"><Wallet size={16} /></div>
+                <div className="flex justify-center mb-1 text-gray-400 group-hover:text-mine-blue"><Wallet size={16} /></div>
                 <div className="font-bold text-[10px] uppercase leading-tight">Loan<br/>Calculator</div>
               </div>
               <div 
                 onClick={() => setActiveTab('payslips')}
-                className="p-3 border border-border rounded-md text-center hover:bg-green-50 hover:border-mine-green transition-all cursor-pointer group"
+                className="p-3 border border-border rounded-md text-center hover:bg-blue-50 hover:border-mine-blue transition-all cursor-pointer group"
               >
-                <div className="flex justify-center mb-1 text-gray-400 group-hover:text-mine-green"><TrendingUp size={16} /></div>
+                <div className="flex justify-center mb-1 text-gray-400 group-hover:text-mine-blue"><TrendingUp size={16} /></div>
                 <div className="font-bold text-[10px] uppercase leading-tight">Tax<br/>Reports</div>
               </div>
             </div>
@@ -250,11 +250,11 @@ const Dashboard: React.FC<DashboardProps> = ({ activeTab, setActiveTab }) => {
               <div className="card-title !mb-2">System Status</div>
               <div className="flex justify-between text-[11px] mb-1">
                 <span className="text-gray-500">NSSA Hub</span>
-                <span className="text-green-600 font-bold">Online</span>
+                <span className="text-blue-600 font-bold">Online</span>
               </div>
               <div className="flex justify-between text-[11px]">
                 <span className="text-gray-500">Inter-Bank API</span>
-                <span className="text-green-600 font-bold">Active</span>
+                <span className="text-blue-600 font-bold">Active</span>
               </div>
             </div>
           </section>
@@ -387,12 +387,12 @@ const PerformanceView: React.FC = () => {
     <div className="space-y-6">
       <header>
         <h2 className="text-2xl font-bold text-gray-900 italic serif">Performance Matrix</h2>
-        <p className="text-sm text-gray-500 underline decoration-mine-green decoration-2 underline-offset-4 font-black uppercase tracking-widest text-[10px]">Development Roadmap Audit</p>
+        <p className="text-sm text-gray-500 underline decoration-mine-blue decoration-2 underline-offset-4 font-black uppercase tracking-widest text-[10px]">Development Roadmap Audit</p>
       </header>
 
       {loading ? (
         <div className="p-12 text-center">
-          <RefreshCw className="animate-spin text-mine-green mx-auto mb-4" size={32} />
+          <RefreshCw className="animate-spin text-mine-blue mx-auto mb-4" size={32} />
           <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-mono">Querying Review Node...</p>
         </div>
       ) : reviews.length === 0 ? (
@@ -407,7 +407,7 @@ const PerformanceView: React.FC = () => {
                <div className="absolute top-0 right-0 w-24 h-24 bg-gray-50 -mr-12 -mt-12 rounded-full group-hover:scale-110 transition-transform duration-500"></div>
                <div className="flex justify-between items-start mb-6 relative z-10">
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100 group-hover:bg-mine-green group-hover:text-white transition-colors">
+                    <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center border border-gray-100 group-hover:bg-mine-blue group-hover:text-white transition-colors">
                       <Calendar size={22} />
                     </div>
                     <div>
@@ -420,13 +420,13 @@ const PerformanceView: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    <span className={`badge border ${rev.status === 'completed' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                    <span className={`badge border ${rev.status === 'completed' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-slate-50 text-slate-700 border-slate-100'}`}>
                       {rev.status}
                     </span>
                     {rev.status === 'completed' && (
                       <button 
                         onClick={() => downloadReviewPDF(rev)}
-                        className="flex items-center gap-1 text-[10px] font-black text-mine-green uppercase tracking-widest hover:underline"
+                        className="flex items-center gap-1 text-[10px] font-black text-mine-blue uppercase tracking-widest hover:underline"
                       >
                         <FileDown size={12} /> Audit PDF
                       </button>
@@ -440,8 +440,8 @@ const PerformanceView: React.FC = () => {
                     <p className="text-xs text-gray-600 leading-relaxed italic bg-gray-50/50 p-4 rounded-xl">{rev.feedback}</p>
                   </div>
                   {rev.goals && (
-                    <div className="bg-mine-green/5 p-4 rounded-xl border border-mine-green/10">
-                      <p className="text-[9px] font-black text-mine-green uppercase tracking-[3px] mb-2 flex items-center gap-1">
+                    <div className="bg-blue-50/30 p-4 rounded-xl border border-blue-100/50">
+                      <p className="text-[9px] font-black text-mine-blue uppercase tracking-[3px] mb-2 flex items-center gap-1">
                         <Target size={12} /> Strategic Objectives
                       </p>
                       <p className="text-xs text-slate-800 font-bold">{rev.goals}</p>

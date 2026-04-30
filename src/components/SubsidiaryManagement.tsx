@@ -101,9 +101,9 @@ const SubsidiaryManagement: React.FC = () => {
           <motion.div 
             layout
             key={sub.id} 
-            className="card group hover:border-mine-green transition-all relative overflow-hidden"
+            className="card group hover:border-mine-blue transition-all relative overflow-hidden"
           >
-            <div className="absolute top-0 right-0 w-24 h-24 bg-gray-50 rounded-bl-full -mr-12 -mt-12 group-hover:bg-green-50 transition-colors"></div>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-gray-50 rounded-bl-full -mr-12 -mt-12 group-hover:bg-blue-50 transition-colors"></div>
             
             <div className="flex justify-between items-start mb-4 relative z-10">
               <div className="w-12 h-12 bg-gray-900 text-mine-gold rounded-lg flex items-center justify-center border border-white/10 shadow-lg">
@@ -123,7 +123,7 @@ const SubsidiaryManagement: React.FC = () => {
                     }); 
                     setIsModalOpen(true); 
                   }}
-                  className="p-2 text-gray-400 hover:text-mine-green"
+                  className="p-2 text-gray-400 hover:text-mine-blue"
                 >
                   <Edit2 size={16} />
                 </button>
@@ -144,7 +144,7 @@ const SubsidiaryManagement: React.FC = () => {
               </div>
               <div>
                 <p className="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Status</p>
-                <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${sub.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${sub.status === 'active' ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
                   {sub.status === 'active' ? <CheckCircle2 size={10} /> : <AlertCircle size={10} />}
                   {sub.status}
                 </span>
@@ -205,7 +205,7 @@ const SubsidiaryManagement: React.FC = () => {
                         required
                         value={form.name}
                         onChange={(e) => setForm({ ...form, name: e.target.value })}
-                        className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-green transition-all"
+                        className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-blue transition-all"
                         placeholder="e.g. Mineazy Logistics Ltd"
                       />
                     </div>
@@ -218,7 +218,7 @@ const SubsidiaryManagement: React.FC = () => {
                         type="text" 
                         value={form.tax_number}
                         onChange={(e) => setForm({ ...form, tax_number: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-green"
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-blue"
                         placeholder="BP-88129-ZW"
                       />
                     </div>
@@ -227,7 +227,7 @@ const SubsidiaryManagement: React.FC = () => {
                       <select 
                         value={form.currency}
                         onChange={(e) => setForm({ ...form, currency: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold"
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold"
                       >
                         <option value="USD">USD (US Dollar)</option>
                         <option value="ZWG">ZWG (Zimbabwe Gold)</option>
@@ -240,7 +240,7 @@ const SubsidiaryManagement: React.FC = () => {
                      <textarea 
                         value={form.address}
                         onChange={(e) => setForm({ ...form, address: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-green min-h-[80px]"
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-blue min-h-[80px]"
                         placeholder="Plot 44, Mining District, Harare..."
                       />
                   </div>
@@ -251,7 +251,7 @@ const SubsidiaryManagement: React.FC = () => {
                       <select 
                         value={form.status}
                         onChange={(e) => setForm({ ...form, status: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-green font-bold uppercase tracking-widest text-[10px]"
+                        className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold uppercase tracking-widest text-[10px]"
                       >
                         <option value="active">Active Terminal</option>
                         <option value="suspended">Suspended Service</option>
@@ -273,7 +273,7 @@ const SubsidiaryManagement: React.FC = () => {
                   </button>
                   <button 
                     type="submit" 
-                    className="flex-3 px-6 py-3 bg-mine-green text-white rounded-lg text-xs font-black uppercase tracking-widest shadow-lg shadow-green-100 hover:brightness-110 active:scale-95 transition-all"
+                    className="flex-3 px-6 py-3 bg-mine-blue text-white rounded-lg text-xs font-black uppercase tracking-widest shadow-lg shadow-blue-100 hover:brightness-110 active:scale-95 transition-all"
                   >
                     {editingSub ? 'Authorize Update' : 'Authorize Initialization'}
                   </button>

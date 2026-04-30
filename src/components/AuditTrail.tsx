@@ -93,7 +93,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
-      case 'payroll': return <TrendingUp size={14} className="text-mine-green" />;
+      case 'payroll': return <TrendingUp size={14} className="text-mine-blue" />;
       case 'personnel': return <User size={14} className="text-blue-600" />;
       case 'report': return <FileText size={14} className="text-orange-600" />;
       case 'system': return <Shield size={14} className="text-purple-600" />;
@@ -123,13 +123,13 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
               placeholder="Filter actions or personnel..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium outline-none focus:ring-1 focus:ring-mine-green w-48 md:w-64"
+              className="pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs font-medium outline-none focus:ring-1 focus:ring-mine-blue w-48 md:w-64"
             />
           </div>
           <select 
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-green"
+            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue"
           >
             <option value="all">All Categories</option>
             <option value="payroll">Payroll</option>
@@ -191,7 +191,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
                     </td>
                     <td className="py-4">
                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 bg-white rounded-full border border-gray-200 flex items-center justify-center text-mine-green font-black text-[10px] shadow-sm uppercase">
+                          <div className="w-7 h-7 bg-white rounded-full border border-gray-200 flex items-center justify-center text-mine-blue font-black text-[10px] shadow-sm uppercase">
                             {log.userName?.slice(0, 2) || '??'}
                           </div>
                           <div className="flex flex-col">
@@ -237,7 +237,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
             <button
               disabled={currentPage === 1}
               onClick={() => setCurrentPage(currentPage - 1)}
-              className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+              className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-blue hover:text-mine-blue transition-all"
             >
               <ChevronLeft size={14} />
             </button>
@@ -246,7 +246,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
                 <button
                   key={p}
                   onClick={() => setCurrentPage(p)}
-                  className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${currentPage === p ? 'bg-mine-green text-white' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-green hover:text-mine-green'}`}
+                  className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold transition-all ${currentPage === p ? 'bg-mine-blue text-white' : 'bg-white border border-gray-200 text-gray-400 hover:border-mine-blue hover:text-mine-blue'}`}
                 >
                   {p}
                 </button>
@@ -260,7 +260,7 @@ const AuditTrail: React.FC<AuditTrailProps> = ({ subsidiaryId, isSuperAdmin }) =
             <button
               disabled={currentPage === totalPages}
               onClick={() => setCurrentPage(currentPage + 1)}
-              className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-green hover:text-mine-green transition-all"
+              className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-500 disabled:opacity-30 hover:border-mine-blue hover:text-mine-blue transition-all"
             >
               <ChevronRight size={14} />
             </button>

@@ -3,7 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Mineazy Payroll System</title>
+    <title>Mineazy | Resource Management</title>
+    <script>
+      // Suppress benign environment errors related to HMR/WebSockets which are restricted in this sandbox
+      if (window.location.hostname.includes('europe-west2.run.app')) {
+        window.addEventListener('unhandledrejection', (event) => {
+          if (event.reason && (
+            event.reason.message?.includes('WebSocket') || 
+            event.reason.message?.includes('failed to connect to websocket')
+          )) {
+            event.stopImmediatePropagation();
+            event.preventDefault();
+          }
+        });
+        
+        // Also suppress console errors for these specific patterns
+        const originalError = console.error;
+        console.error = (...args) => {
+          const msg = args[0]?.toString() || '';
+          if (msg.includes('failed to connect to websocket') || msg.includes('WebSocket connection to')) {
+            return;
+          }
+          originalError.apply(console, args);
+        };
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

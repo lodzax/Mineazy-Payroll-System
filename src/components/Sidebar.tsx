@@ -86,7 +86,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdmin }) =
                 onClick={() => setActiveTab(item.id)}
                 className={`w-full flex items-center justify-between px-3 py-2.5 rounded-md transition-all text-[13px] font-medium ${
                   activeTab === item.id 
-                    ? 'bg-green-50 text-mine-green border-l-4 border-mine-green rounded-l-none' 
+                    ? 'bg-blue-50 text-mine-blue border-l-4 border-mine-blue rounded-l-none shadow-sm' 
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 border-l-4 border-transparent'
                 }`}
               >

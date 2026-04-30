@@ -24,14 +24,14 @@ const Pagination: React.FC<{
         <button
           disabled={currentPage === 1}
           onClick={() => onPageChange(currentPage - 1)}
-          className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-green transition-all"
+          className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-blue transition-all"
         >
           <ChevronLeft size={12} />
         </button>
         <button
           disabled={currentPage === totalPages}
           onClick={() => onPageChange(currentPage + 1)}
-          className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-green transition-all"
+          className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-blue transition-all"
         >
           <ChevronRight size={12} />
         </button>
@@ -76,8 +76,9 @@ const LoanForm: React.FC = () => {
       setHistory((data || []).map(l => ({
         ...l,
         employeeId: l.user_id,
-        installmentCount: l.installment_count,
-        interestRate: l.interest_rate
+        installmentCount: l.installments,
+        interestRate: l.interest_rate || 5,
+        rejectionReason: l.rejection_reason
       })));
     }
   };
@@ -151,7 +152,7 @@ const LoanForm: React.FC = () => {
         <section className="lg:col-span-5 space-y-6">
           <div className="card">
             <div className="flex items-center gap-2 mb-6">
-              <div className="w-8 h-8 rounded-lg bg-mine-green/10 flex items-center justify-center text-mine-green">
+              <div className="w-8 h-8 rounded-lg bg-mine-blue/10 flex items-center justify-center text-mine-blue">
                 <Send size={16} />
               </div>
               <h2 className="text-xs font-black text-gray-900 uppercase tracking-widest">New Application</h2>
@@ -165,7 +166,7 @@ const LoanForm: React.FC = () => {
                     type="number"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
-                    className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-green font-mono"
+                    className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue font-mono"
                     placeholder="0.00"
                     required
                   />
@@ -184,7 +185,7 @@ const LoanForm: React.FC = () => {
                             setInstallments(e.target.value);
                           }
                         }}
-                        className={`flex-1 bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-green ${isCustomTerm ? 'max-w-[100px]' : 'w-full'}`}
+                        className={`flex-1 bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue ${isCustomTerm ? 'max-w-[100px]' : 'w-full'}`}
                       >
                         <option value="1">1 Month</option>
                         <option value="2">2 Months</option>
@@ -199,7 +200,7 @@ const LoanForm: React.FC = () => {
                           placeholder="Duration"
                           value={customTerm}
                           onChange={(e) => setCustomTerm(e.target.value)}
-                          className="flex-1 bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-green font-mono"
+                          className="flex-1 bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue font-mono"
                           required
                         />
                       )}
@@ -230,10 +231,10 @@ const LoanForm: React.FC = () => {
 
               {/* Repayment Estimate Card */}
               {principal > 0 && (
-                <div className="bg-mine-green/5 border border-mine-green/10 rounded-2xl p-4 grid grid-cols-2 gap-4">
+                <div className="bg-mine-blue/5 border border-mine-blue/10 rounded-2xl p-4 grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-[9px] font-bold text-mine-green uppercase tracking-tighter">Est. Monthly Repayment</p>
-                    <p className="text-lg font-black text-mine-green font-mono">
+                    <p className="text-[9px] font-bold text-mine-blue uppercase tracking-tighter">Est. Monthly Repayment</p>
+                    <p className="text-lg font-black text-mine-blue font-mono">
                       {profile?.currency} {monthlyRepayment.toFixed(2)}
                     </p>
                   </div>
@@ -252,7 +253,7 @@ const LoanForm: React.FC = () => {
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   rows={3}
-                  className="w-full bg-gray-50 border border-border rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-mine-green resize-none font-sans"
+                  className="w-full bg-gray-50 border border-border rounded-xl px-4 py-3 text-sm focus:ring-1 focus:ring-mine-blue resize-none font-sans"
                   placeholder="Justify this advance request..."
                   required
                 />
@@ -260,7 +261,7 @@ const LoanForm: React.FC = () => {
 
               {message && (
                 <div className={`p-4 rounded-xl flex items-center gap-3 text-[11px] font-bold uppercase tracking-wider ${
-                  message.type === 'success' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'
+                  message.type === 'success' ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-red-50 text-red-700 border border-red-100'
                 }`}>
                   {message.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
                   <p>{message.text}</p>
@@ -269,7 +270,7 @@ const LoanForm: React.FC = () => {
 
               <button
                 disabled={loading}
-                className="btn btn-primary w-full !py-4 !text-xs font-black uppercase tracking-[0.25em] flex items-center justify-center gap-3 mt-4 shadow-lg shadow-mine-green/10"
+                className="btn btn-primary w-full !py-4 !text-xs font-black uppercase tracking-[0.25em] flex items-center justify-center gap-3 mt-4 shadow-lg shadow-mine-blue/10"
               >
                 <BadgeDollarSign size={18} />
                 {loading ? 'Processing Transaction...' : 'Initiate Application'}
@@ -307,7 +308,7 @@ const LoanForm: React.FC = () => {
           <div className="card !p-0 overflow-hidden border-none shadow-xl shadow-gray-200/50">
             <div className="p-6 border-b border-gray-50 flex items-center justify-between bg-white">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-mine-gold/10 flex items-center justify-center text-mine-green border border-mine-gold/20 font-black italic serif">
+                <div className="w-10 h-10 rounded-xl bg-mine-gold/10 flex items-center justify-center text-mine-blue border border-mine-gold/20 font-black italic serif">
                   <BadgeDollarSign size={20} />
                 </div>
                 <div>
@@ -344,7 +345,7 @@ const LoanForm: React.FC = () => {
                       </td>
                       <td className="px-6 py-5 text-center">
                         <span className={`px-2 py-1 rounded text-[9px] font-black uppercase tracking-widest border ${
-                          l.status === 'approved' ? 'bg-green-50 text-green-700 border-green-100' :
+                          l.status === 'approved' ? 'bg-blue-50 text-blue-700 border-blue-100' :
                           l.status === 'rejected' ? 'bg-red-50 text-red-700 border-red-100' :
                           'bg-blue-50 text-blue-700 border-blue-100'
                         }`}>
@@ -352,7 +353,7 @@ const LoanForm: React.FC = () => {
                         </span>
                       </td>
                       <td className="px-6 py-5 text-right">
-                        <div className="inline-flex items-center gap-2 text-mine-green opacity-0 group-hover:opacity-100 transition-all font-black text-[10px] uppercase">
+                        <div className="inline-flex items-center gap-2 text-mine-blue opacity-0 group-hover:opacity-100 transition-all font-black text-[10px] uppercase">
                           Inspect Node <ExternalLink size={12} />
                         </div>
                       </td>
@@ -410,7 +411,7 @@ const LoanForm: React.FC = () => {
                   <div>
                     <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Status Identifier</p>
                     <span className={`badge ${
-                      selectedLoan.status === 'approved' ? 'bg-green-50 text-green-700 border border-green-100' :
+                      selectedLoan.status === 'approved' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
                       selectedLoan.status === 'rejected' ? 'bg-red-50 text-red-700 border border-red-100' :
                       'bg-blue-50 text-blue-700 border border-blue-100'
                     }`}>
@@ -437,16 +438,28 @@ const LoanForm: React.FC = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Justification / Reason</p>
-                  <p className="text-xs text-gray-600 bg-gray-50 p-3 rounded-md italic leading-relaxed">
+                  <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest leading-none">Justification / Purpose</p>
+                  <p className="text-xs text-gray-600 bg-gray-50 p-4 rounded-xl italic leading-relaxed border border-gray-100/50">
                     "{selectedLoan.purpose}"
                   </p>
                 </div>
 
+                {selectedLoan.status === 'rejected' && (selectedLoan.rejection_reason || selectedLoan.rejectionReason) && (
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertCircle size={10} className="text-red-500" />
+                      <p className="text-[9px] font-black text-red-600 uppercase tracking-widest font-bold">Auditor Rejection Feedback</p>
+                    </div>
+                    <div className="p-4 bg-red-50/50 rounded-2xl text-xs text-red-700 font-bold border border-red-100/50 italic leading-relaxed shadow-sm">
+                      "{selectedLoan.rejection_reason || selectedLoan.rejectionReason}"
+                    </div>
+                  </div>
+                )}
+
                 <div className="pt-4 border-t border-gray-50 space-y-2">
                   <div className="flex justify-between text-[10px] font-bold">
                     <span className="text-gray-400 uppercase">Monthly Repayment</span>
-                    <span className="text-mine-green font-mono">
+                    <span className="text-mine-blue font-mono">
                       {selectedLoan.currency} {((selectedLoan.amount + (selectedLoan.amount * (selectedLoan.interestRate/100) * selectedLoan.installmentCount)) / selectedLoan.installmentCount).toFixed(2)}
                     </span>
                   </div>
