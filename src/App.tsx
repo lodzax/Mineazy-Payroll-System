@@ -313,13 +313,13 @@ function MainApp() {
                 />
               )}
               {isSuperAdmin && activeTab === 'subsidiaries' && <SubsidiaryManagement />}
-              {isAdmin && activeTab === 'audit' && (
+              {isSuperAdmin && activeTab === 'audit' && (
                 <AuditTrail 
                   subsidiaryId={profile?.subsidiary_id} 
                   isSuperAdmin={isSuperAdmin} 
                 />
               )}
-              {(!isAdmin || (activeTab !== 'admin' && activeTab !== 'employees' && activeTab !== 'subsidiaries' && activeTab !== 'audit')) && (
+              {(!isAdmin || (activeTab !== 'admin' && activeTab !== 'employees' && activeTab !== 'subsidiaries' && (activeTab !== 'audit' || !isSuperAdmin))) && (
                 <Dashboard activeTab={activeTab} setActiveTab={handleSetTab} />
               )}
             </motion.div>

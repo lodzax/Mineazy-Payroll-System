@@ -76,9 +76,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isAdmin, isC
   if (isAdmin) {
     menuItems.push({ id: 'employees', label: 'Staff Directory', icon: Users, badge: counts.timesheets + counts.leave });
     menuItems.push({ id: 'admin', label: 'Payroll Admin', icon: ShieldCheck, badge: counts.timesheets + counts.leave + counts.loans });
-    menuItems.push({ id: 'audit', label: 'Audit Trail', icon: History });
     if (isSuperAdmin) {
       menuItems.push({ id: 'subsidiaries', label: 'Subsidiaries', icon: Building2 });
+      menuItems.push({ id: 'audit', label: 'Audit Trail', icon: History });
     }
   }
 
