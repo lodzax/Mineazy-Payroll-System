@@ -21,15 +21,15 @@ BEGIN
     END IF;
 
     -- 2. Handle table renaming
-    -- If profiles exists AND users exists, we drop profiles (as requested) and rename users
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'profiles') 
-       AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
-        DROP TABLE profiles CASCADE;
-        ALTER TABLE users RENAME TO profiles;
-    -- If only users exists, rename it
-    ELSIF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'profiles') 
-          AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'users') THEN
-        ALTER TABLE users RENAME TO profiles;
+    -- If profiles exists AND users exists in public, we drop profiles and rename users
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'profiles') 
+       AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users') THEN
+        EXECUTE 'DROP TABLE public.profiles CASCADE';
+        EXECUTE 'ALTER TABLE public.users RENAME TO profiles';
+    -- If only users exists in public, rename it
+    ELSIF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'profiles') 
+          AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users') THEN
+        EXECUTE 'ALTER TABLE public.users RENAME TO profiles';
     END IF;
 END $$;
 
@@ -467,6 +467,14 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leave_requests' AND column_name = 'rejection_reason') THEN
         ALTER TABLE leave_requests ADD COLUMN rejection_reason TEXT;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'leave_requests' AND column_name = 'requested_days') THEN
+        ALTER TABLE leave_requests ADD COLUMN requested_days NUMERIC;
+    END IF;
+
+    -- Add shortage_balance to profiles for Sales Reps
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'shortage_balance') THEN
+        ALTER TABLE profiles ADD COLUMN shortage_balance NUMERIC DEFAULT 0;
     END IF;
 
     -- Ensure payroll_group exists in payroll_batches

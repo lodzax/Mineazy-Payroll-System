@@ -37,7 +37,6 @@ const Pagination: React.FC<{
       <div className="flex gap-1">
         <button
           disabled={currentPage === 1}
-          onPageChange={setCurrentPage}
           onClick={() => onPageChange(currentPage - 1)}
           className="p-1 rounded bg-white border border-gray-200 text-gray-400 disabled:opacity-30 hover:text-mine-blue transition-all"
         >
@@ -58,6 +57,7 @@ const Pagination: React.FC<{
 const LeaveForm: React.FC = () => {
   const { user, profile } = useAuth();
   const [type, setType] = useState('annual');
+  const [requestedDays, setRequestedDays] = useState(0);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
@@ -148,12 +148,16 @@ const LeaveForm: React.FC = () => {
     setMessage(null);
 
     try {
-      const leaveData = {
+      const isCashInLieu = type === 'cash_in_lieu';
+      const today = new Date().toISOString().split('T')[0];
+
+      const leaveData: any = {
         user_id: user.id,
         subsidiary_id: profile?.subsidiary_id || null,
         type,
-        start_date: startDate,
-        end_date: endDate,
+        start_date: isCashInLieu ? today : startDate,
+        end_date: isCashInLieu ? today : endDate,
+        requested_days: isCashInLieu ? requestedDays : null,
         reason,
         status: 'pending_approval',
         created_at: new Date().toISOString()
@@ -229,34 +233,54 @@ const LeaveForm: React.FC = () => {
                 className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
               >
                 <option value="annual">Annual Leave</option>
+                <option value="cash_in_lieu">Cash In-Lieu of Leave</option>
                 <option value="sick">Sick Leave</option>
                 <option value="maternity">Maternity Leave</option>
                 <option value="study">Study Leave</option>
                 <option value="compassionate">Compassionate</option>
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            {type === 'cash_in_lieu' ? (
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">From Date</label>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Days to Cash Out</label>
                 <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
+                  type="number"
+                  step="0.5"
+                  min="1"
+                  max={profile?.annual_leave_balance || 0}
+                  value={requestedDays}
+                  onChange={(e) => setRequestedDays(parseFloat(e.target.value))}
+                  className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all font-mono"
                   required
                 />
+                <p className="text-[9px] text-orange-600 mt-1 font-bold">
+                  Available: {(profile?.annual_leave_balance ?? 0).toFixed(1)} Days
+                </p>
               </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Until Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
-                  required
-                />
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Until Date</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full bg-gray-50 border border-border rounded-md p-2.5 text-sm focus:ring-1 focus:ring-mine-blue focus:outline-none transition-all"
+                    required
+                  />
+                </div>
               </div>
-            </div>
+            )}
             <div>
               <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Supporting Reason</label>
               <textarea
@@ -358,7 +382,13 @@ const LeaveForm: React.FC = () => {
                         <Info size={10} className="opacity-0 group-hover:opacity-100 transition-opacity text-mine-blue" />
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-mono text-[10px] text-gray-500 whitespace-nowrap">{l.startDate} &gt; {l.endDate}</td>
+                    <td className="px-4 py-3 font-mono text-[10px] text-gray-500 whitespace-nowrap">
+                      {l.type === 'cash_in_lieu' ? (
+                        <span className="font-bold text-mine-blue">{l.requested_days || 0} DAYS CASH-OUT</span>
+                      ) : (
+                        `${l.startDate} > ${l.endDate}`
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <span className={`badge ${
                         l.status === 'approved' ? 'bg-blue-50 text-blue-700 border border-blue-100' :
@@ -436,14 +466,23 @@ const LeaveForm: React.FC = () => {
                 </div>
 
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-3">
-                   <div className="flex justify-between">
-                     <span className="text-[9px] font-black text-gray-400 uppercase">Commencement</span>
-                     <span className="text-xs font-bold font-mono">{viewingLeave.startDate}</span>
-                   </div>
-                   <div className="flex justify-between">
-                     <span className="text-[9px] font-black text-gray-400 uppercase">Conclusion</span>
-                     <span className="text-xs font-bold font-mono">{viewingLeave.endDate}</span>
-                   </div>
+                   {viewingLeave.type === 'cash_in_lieu' ? (
+                     <div className="flex justify-between items-center text-mine-blue">
+                       <span className="text-[9px] font-black uppercase">Requested Cash-out</span>
+                       <span className="text-sm font-black font-mono">{viewingLeave.requested_days || viewingLeave.requestedDays} DAYS</span>
+                     </div>
+                   ) : (
+                     <React.Fragment>
+                       <div className="flex justify-between">
+                         <span className="text-[9px] font-black text-gray-400 uppercase">Commencement</span>
+                         <span className="text-xs font-bold font-mono">{viewingLeave.startDate}</span>
+                       </div>
+                       <div className="flex justify-between">
+                         <span className="text-[9px] font-black text-gray-400 uppercase">Conclusion</span>
+                         <span className="text-xs font-bold font-mono">{viewingLeave.endDate}</span>
+                       </div>
+                     </React.Fragment>
+                   )}
                 </div>
 
                 <div className="space-y-2">

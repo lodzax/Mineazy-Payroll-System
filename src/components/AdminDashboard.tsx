@@ -99,9 +99,11 @@ const AdminDashboard: React.FC = () => {
   const [subFilter, setSubFilter] = useState('');
   const [payrollStatus, setPayrollStatus] = useState<{ type: 'success' | 'error' | 'info', message: string } | null>(null);
   const [showGuide, setShowGuide] = useState(false);
-  const [payrollGroupFilter, setPayrollGroupFilter] = useState('General');
+  const [payrollGroupFilter, setPayrollGroupFilter] = useState('employee');
   const [isBatchFinalized, setIsBatchFinalized] = useState(false);
   const [confirmAction, setConfirmAction] = useState<{ type: 'draft' | 'final', monthDisplay: string, group?: string } | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [viewMode, setViewMode] = useState<'draft' | 'finalized'>('draft');
   
   // New state for Payroll Review & Readiness
   const [draftPayslips, setDraftPayslips] = useState<any[]>([]);
@@ -121,8 +123,16 @@ const AdminDashboard: React.FC = () => {
   } | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   
-  const [activeTab, setActiveTab] = useState<'run' | 'batches' | 'reports' | 'help'>('run');
+  const [activeTab, setActiveTab] = useState<'run' | 'batches' | 'reports' | 'help' | 'cash-balance'>('run');
   const [globalSearch, setGlobalSearch] = useState('');
+  
+  // Specific filters for Cash in-Lieu tab
+  const [cashBalanceFilters, setCashBalanceFilters] = useState({
+    role: 'All',
+    branch: 'All',
+    position: 'All',
+    status: 'All'
+  });
   const [selectedTimesheets, setSelectedTimesheets] = useState<Set<string>>(new Set());
   const [selectedLeaveRequests, setSelectedLeaveRequests] = useState<Set<string>>(new Set());
   const [selectedLoanRequests, setSelectedLoanRequests] = useState<Set<string>>(new Set());
@@ -142,7 +152,7 @@ const AdminDashboard: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const month = new Date().toISOString().slice(0, 7);
+      const month = selectedMonth;
       const specificSubId = subFilter || profile?.subsidiary_id;
       
       const { data: batchData } = await supabase
@@ -150,7 +160,11 @@ const AdminDashboard: React.FC = () => {
         .select('*')
         .eq('month_year', month);
 
-      const finalized = (batchData || []).some(b => b.status === 'finalized' && (!specificSubId || b.subsidiary_id === specificSubId || b.subsidiary_id === 'all'));
+      const finalized = (batchData || []).some(b => 
+        b.status === 'finalized' && 
+        (!specificSubId || b.subsidiary_id === specificSubId || b.subsidiary_id === 'all') &&
+        b.payroll_group === payrollGroupFilter
+      );
       setIsBatchFinalized(finalized);
 
       // IMPORTANT: Explicitly check for isSuperAdmin flag derived from email as well for robustness
@@ -176,6 +190,7 @@ const AdminDashboard: React.FC = () => {
         fullName: u.full_name || 'Anonymous User', 
         baseSalary: u.base_salary || 0, 
         annualLeaveBalance: u.annual_leave_balance || 0,
+        shortageBalance: u.shortage_balance || 0,
         payrollGroup: u.payroll_group || 'General'
       }));
       const allSubs: any[] = (subRes.data || []);
@@ -187,25 +202,29 @@ const AdminDashboard: React.FC = () => {
       setEmployees(allEmps);
       setSubsidiaries(allSubs);
 
-      // Fetch Draft Payslips for Review & Readiness
+      const filteredEmpsForReadiness = allEmps.filter(u => {
+        if (payrollGroupFilter === 'management') {
+          return ['management', 'admin', 'superadmin'].includes(u.role);
+        }
+        return u.role === payrollGroupFilter;
+      });
+
+      const readinessEmpIds = filteredEmpsForReadiness.map(e => e.id);
+
+      // Fetch Draft Payslips for Review
       await fetchDraftPayslips();
-      
-      const [pendingTimesheets, pendingLoans, pendingLeave] = await Promise.all([
-        supabase.from('timesheets').select('id', { count: 'exact', head: true }).eq('status', 'submitted').eq('month_year', month),
-        supabase.from('loan_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-        supabase.from('leave_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+
+      // Fetch group-specific metrics
+      const [pendingTimesheets, pendingLoans, pendingLeave, approvedTS] = await Promise.all([
+        supabase.from('timesheets').select('id', { count: 'exact', head: true }).eq('status', 'submitted').eq('month_year', month).in('user_id', readinessEmpIds.length > 0 ? readinessEmpIds : ['']),
+        supabase.from('loan_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending').in('user_id', readinessEmpIds.length > 0 ? readinessEmpIds : ['']),
+        supabase.from('leave_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending').in('user_id', readinessEmpIds.length > 0 ? readinessEmpIds : ['']),
+        supabase.from('timesheets').select('id', { count: 'exact', head: true }).eq('status', 'approved').eq('month_year', month).in('user_id', readinessEmpIds.length > 0 ? readinessEmpIds : [''])
       ]);
 
-      // Fetch approved timesheets count for the period
-      const { count: approvedTSCount } = await supabase
-        .from('timesheets')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'approved')
-        .eq('month_year', month);
-
       setReadinessMetrics({
-        totalEmployees: (allEmps || []).filter(u => !['superadmin', 'admin'].includes(u.role)).length,
-        approvedTimesheets: approvedTSCount || 0,
+        totalEmployees: filteredEmpsForReadiness.length,
+        approvedTimesheets: approvedTS.count || 0,
         pendingTimesheets: pendingTimesheets.count || 0,
         pendingLoans: pendingLoans.count || 0,
         pendingLeave: pendingLeave.count || 0
@@ -277,16 +296,16 @@ const AdminDashboard: React.FC = () => {
     if (!authLoading) {
       fetchData();
     }
-  }, [authLoading, subFilter, isSuperAdmin, profile?.subsidiary_id]);
+  }, [authLoading, subFilter, isSuperAdmin, profile?.subsidiary_id, payrollGroupFilter, selectedMonth, viewMode]);
 
   const fetchDraftPayslips = async () => {
-    const displayMonth = new Date().toISOString().slice(0, 7);
+    const displayMonth = selectedMonth;
     try {
       let query = supabase
         .from('payslips')
         .select('*')
         .eq('month_year', displayMonth)
-        .eq('is_published', false);
+        .eq('is_published', viewMode === 'finalized');
 
       if (payrollGroupFilter !== 'All') {
         // Since we are filtering by a referenced table, we might need a different approach or join filtering
@@ -308,7 +327,7 @@ const AdminDashboard: React.FC = () => {
         const userIds = [...new Set(payslips.map(p => p.user_id))];
         const { data: profiles, error: profilesError } = await supabase
           .from('profiles')
-          .select('id, full_name, payroll_group, job_title')
+          .select('id, full_name, role, payroll_group, job_title')
           .in('id', userIds);
         
         if (profilesError) {
@@ -322,7 +341,14 @@ const AdminDashboard: React.FC = () => {
           }));
           
           if (payrollGroupFilter !== 'All') {
-            setDraftPayslips(joinedData.filter(p => p.profiles?.payroll_group === payrollGroupFilter));
+            setDraftPayslips(joinedData.filter(p => {
+              if (!p.profiles) return false;
+              const role = p.profiles.role;
+              if (payrollGroupFilter === 'management') {
+                return ['management', 'admin', 'superadmin'].includes(role);
+              }
+              return role === payrollGroupFilter;
+            }));
           } else {
             setDraftPayslips(joinedData);
           }
@@ -340,7 +366,7 @@ const AdminDashboard: React.FC = () => {
     setPayrollStatus({ type: 'info', message: 'Recomputing single record...' });
     try {
       // 1. Delete existing draft
-      const displayMonth = new Date().toISOString().slice(0, 7);
+      const displayMonth = selectedMonth;
       await supabase.from('payslips').delete().eq('user_id', employeeId).eq('month_year', displayMonth).eq('is_published', false);
       
       // 2. Fetch fresh data for this employee
@@ -349,16 +375,24 @@ const AdminDashboard: React.FC = () => {
 
       const { data: timesheets } = await supabase.from('timesheets').select('*').eq('user_id', employeeId).eq('month_year', displayMonth).eq('status', 'approved');
       const { data: loans } = await supabase.from('loan_requests').select('*').eq('user_id', employeeId).eq('status', 'approved');
+      const { data: cashOuts } = await supabase.from('leave_requests').select('*').eq('user_id', employeeId).eq('type', 'cash_in_lieu').eq('status', 'approved');
 
       // 3. Calculate (Matches main generatePayrollForAll logic)
       const empTimesheets = (timesheets || []);
+      const empCashOuts = (cashOuts || []);
+      
       const standardHours = empTimesheets.reduce((acc, curr) => acc + (curr.hours_worked || 0), 0);
       const overtimeHours = empTimesheets.reduce((acc, curr) => acc + (curr.overtime_hours || 0), 0);
       
       const basePay = Number(emp.base_salary || 0);
       const hourlyRate = basePay / 160;
       const overtimePay = overtimeHours * (hourlyRate * 1.5);
-      const totalGross = basePay + overtimePay;
+      
+      const cashInLieuDays = empCashOuts.reduce((acc, curr) => acc + parseFloat(curr.requested_days || 0), 0);
+      const dailyRate = basePay / 22;
+      const cashInLieuPay = cashInLieuDays * dailyRate;
+
+      const totalGross = basePay + overtimePay + cashInLieuPay;
 
       const bands = emp.currency === 'ZWG' ? ZWG_TAX_BANDS : USD_TAX_BANDS;
       const { tax, aidsLevy } = calculatePaye(totalGross, bands);
@@ -374,7 +408,16 @@ const AdminDashboard: React.FC = () => {
       }, 0);
 
       const totalDeductions = tax + aidsLevy + nssa + loanDeduction;
-      const netPay = totalGross - totalDeductions;
+      const preliminaryNetPay = totalGross - totalDeductions;
+
+      // Handle Sales Rep Reconciliation Shortage
+      let shortageDeduction = 0;
+      if (emp.job_title === 'Sales Rep' && (emp.shortage_balance || 0) > 0) {
+        const maxDeduction = preliminaryNetPay * 0.10;
+        shortageDeduction = Math.min(maxDeduction, Number(emp.shortage_balance || 0));
+      }
+
+      const netPay = preliminaryNetPay - shortageDeduction;
 
       const { error: insertErr } = await supabase.from('payslips').insert({
         user_id: employeeId,
@@ -389,7 +432,7 @@ const AdminDashboard: React.FC = () => {
         aids_levy: aidsLevy,
         nssa_deduction: nssa,
         loan_deductions: loanDeduction,
-        total_deductions: totalDeductions,
+        total_deductions: totalDeductions + shortageDeduction,
         net_pay: netPay,
         currency: emp.currency || 'USD',
         subsidiary_id: emp.subsidiary_id,
@@ -398,7 +441,11 @@ const AdminDashboard: React.FC = () => {
           hourlyRate: hourlyRate.toFixed(2),
           overtimeRate: (hourlyRate * 1.5).toFixed(2),
           nssaRate: '4.5%',
-          loanCount: empLoans.length
+          loanCount: empLoans.length,
+          cashInLieuDays,
+          cashInLieuPay: cashInLieuPay.toFixed(2),
+          shortageDeduction: shortageDeduction.toFixed(2),
+          shortageRemaining: ((emp.shortage_balance || 0) - shortageDeduction).toFixed(2)
         }
       });
 
@@ -450,7 +497,7 @@ const AdminDashboard: React.FC = () => {
       }
 
       // Handle leave deduction
-      if (collectionName === 'leave_requests' && status === 'approved' && record.status !== 'approved' && record.type === 'annual') {
+      if (collectionName === 'leave_requests' && status === 'approved' && record.status !== 'approved') {
         const { data: emp, error: empErr } = await supabase
           .from('profiles')
           .select('annual_leave_balance')
@@ -460,20 +507,25 @@ const AdminDashboard: React.FC = () => {
         if (empErr) throw empErr;
 
         if (emp) {
-          const leaveDays = calculateLeaveDays(record.start_date, record.end_date);
-          const currentAnnual = emp.annual_leave_balance || 0;
+          let daysToDeduct = 0;
+          if (record.type === 'annual') {
+            daysToDeduct = calculateLeaveDays(record.start_date, record.end_date);
+          } else if (record.type === 'cash_in_lieu') {
+            daysToDeduct = parseFloat(record.requested_days || 0);
+          }
 
-          const { error: profileUpdateErr } = await supabase
-            .from('profiles')
-            .update({
-              annual_leave_balance: currentAnnual - leaveDays
-            })
-            .eq('id', record.user_id);
-          
-          if (profileUpdateErr) throw profileUpdateErr;
-          console.log(`Deducted ${leaveDays} days from employee ${record.user_id}`);
-        } else {
-          console.warn(`CRITICAL: Personnel profile missing for user ${record.user_id}. Leave deduction skipped for request ${id}.`);
+          if (daysToDeduct > 0) {
+            const currentAnnual = emp.annual_leave_balance || 0;
+            const { error: profileUpdateErr } = await supabase
+              .from('profiles')
+              .update({
+                annual_leave_balance: currentAnnual - daysToDeduct
+              })
+              .eq('id', record.user_id);
+            
+            if (profileUpdateErr) throw profileUpdateErr;
+            console.log(`Deducted ${daysToDeduct} days from employee ${record.user_id} for ${record.type}`);
+          }
         }
       }
 
@@ -623,24 +675,24 @@ const AdminDashboard: React.FC = () => {
   const filteredLoans = filterBySearch(loanRequests);
 
   const initiateGeneratePayroll = () => {
-    const displayMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+    const displayMonth = new Date(selectedMonth + '-01').toLocaleString('default', { month: 'long', year: 'numeric' });
     setConfirmAction({ type: 'draft', monthDisplay: displayMonth, group: payrollGroupFilter });
   };
 
   const initiateFinalizePayroll = () => {
-    const displayMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+    const displayMonth = new Date(selectedMonth + '-01').toLocaleString('default', { month: 'long', year: 'numeric' });
     setConfirmAction({ type: 'final', monthDisplay: displayMonth });
   };
 
   const generatePayrollForAll = async () => {
-    const now = new Date();
-    const month = now.toISOString().slice(0, 7); // YYYY-MM
-    const displayMonth = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+    const month = selectedMonth;
+    const displayMonth = new Date(selectedMonth + '-01').toLocaleString('default', { month: 'long', year: 'numeric' });
     const groupToProcess = confirmAction?.group || payrollGroupFilter;
     
     setConfirmAction(null);
     setProcessing(true);
     setPayrollStatus({ type: 'info', message: `Initializing batch payroll for ${displayMonth}...` });
+    setViewMode('draft');
     
     try {
       // 1. Check for existing payslips
@@ -650,9 +702,13 @@ const AdminDashboard: React.FC = () => {
         .eq('month_year', month);
 
       const existingUserIds = new Set((existingPayslips || []).map(d => d.user_id));
-      const eligibleEmployees = employees.filter(emp => 
-        !existingUserIds.has(emp.id) && emp.payrollGroup === groupToProcess
-      );
+      const eligibleEmployees = employees.filter(emp => {
+        const isEligibleRole = groupToProcess === 'management' 
+          ? ['management', 'admin', 'superadmin'].includes(emp.role)
+          : emp.role === groupToProcess;
+          
+        return !existingUserIds.has(emp.id) && isEligibleRole;
+      });
       
       if (eligibleEmployees.length === 0) {
         setPayrollStatus({ type: 'info', message: `All active personnel in the ${groupToProcess} group have existing payslips for this period.` });
@@ -660,26 +716,35 @@ const AdminDashboard: React.FC = () => {
         return;
       }
 
-      // 2. Fetch approved timesheets and loans
-      const [timesheetsRes, loansRes] = await Promise.all([
+      // 2. Fetch approved timesheets, loans and cash-outs
+      const [timesheetsRes, loansRes, cashOutsRes] = await Promise.all([
         supabase.from('timesheets').select('*').eq('month_year', month).eq('status', 'approved'),
-        supabase.from('loan_requests').select('*').eq('status', 'approved')
+        supabase.from('loan_requests').select('*').eq('status', 'approved'),
+        supabase.from('leave_requests').select('*').eq('type', 'cash_in_lieu').eq('status', 'approved')
       ]);
 
       const approvedTimesheets = timesheetsRes.data || [];
       const approvedLoans = loansRes.data || [];
+      const approvedCashOuts = cashOutsRes.data || [];
 
       let count = 0;
       for (const emp of eligibleEmployees) {
         const empTimesheets = approvedTimesheets.filter(d => d.user_id === emp.id);
+        const empCashOuts = approvedCashOuts.filter(d => d.user_id === emp.id);
         
         const standardHours = empTimesheets.reduce((acc, curr) => acc + (curr.hours_worked || 0), 0);
         const overtimeHours = empTimesheets.reduce((acc, curr) => acc + (curr.overtime_hours || 0), 0);
         
-        const hourlyRate = (emp.baseSalary || 0) / 160;
-        const overtimePay = overtimeHours * (hourlyRate * 1.5);
         const basePay = emp.baseSalary || 0;
-        const totalGross = basePay + overtimePay;
+        const hourlyRate = basePay / 160;
+        const overtimePay = overtimeHours * (hourlyRate * 1.5);
+        
+        // Calculate Cash In-Lieu
+        const cashInLieuDays = empCashOuts.reduce((acc, curr) => acc + parseFloat(curr.requested_days || 0), 0);
+        const dailyRate = basePay / 22; // 22 working days average
+        const cashInLieuPay = cashInLieuDays * dailyRate;
+
+        const totalGross = basePay + overtimePay + cashInLieuPay;
 
         if (totalGross === 0 && empTimesheets.length === 0) continue;
 
@@ -697,7 +762,16 @@ const AdminDashboard: React.FC = () => {
         }, 0);
 
         const totalDeductions = tax + aidsLevy + nssa + loanDeduction;
-        const netPay = totalGross - totalDeductions;
+        const preliminaryNetPay = totalGross - totalDeductions;
+
+        // Handle Sales Rep Reconciliation Shortage
+        let shortageDeduction = 0;
+        if (emp.job_title === 'Sales Rep' && (emp.shortageBalance || 0) > 0) {
+          const maxDeduction = preliminaryNetPay * 0.10;
+          shortageDeduction = Math.min(maxDeduction, Number(emp.shortageBalance || 0));
+        }
+
+        const netPay = preliminaryNetPay - shortageDeduction;
 
         const { error: payslipErr } = await supabase.from('payslips').insert({
           user_id: emp.id,
@@ -714,7 +788,7 @@ const AdminDashboard: React.FC = () => {
           aids_levy: aidsLevy,
           nssa_deduction: nssa,
           loan_deductions: loanDeduction,
-          total_deductions: totalDeductions,
+          total_deductions: totalDeductions + shortageDeduction,
           net_pay: netPay,
           currency: emp.currency || 'USD',
           is_published: false,
@@ -723,7 +797,11 @@ const AdminDashboard: React.FC = () => {
             hourlyRate: hourlyRate.toFixed(2),
             overtimeRate: (hourlyRate * 1.5).toFixed(2),
             nssaRate: emp.currency === 'ZWG' ? '4.5%' : '4.5% (ZWG Base)',
-            loanCount: empLoans.length
+            loanCount: empLoans.length,
+            cashInLieuDays,
+            cashInLieuPay: cashInLieuPay.toFixed(2),
+            shortageDeduction: shortageDeduction.toFixed(2),
+            shortageRemaining: ((emp.shortageBalance || 0) - shortageDeduction).toFixed(2)
           }
         });
 
@@ -764,7 +842,7 @@ const AdminDashboard: React.FC = () => {
     setPayrollStatus({ type: 'info', message: 'Finalizing payroll run...' });
     
     try {
-      const month = new Date().toISOString().slice(0, 7);
+      const month = selectedMonth;
       const subIdRaw = subFilter || profile?.subsidiary_id || 'all';
       const subId = subIdRaw === 'all' ? null : subIdRaw;
 
@@ -783,11 +861,23 @@ const AdminDashboard: React.FC = () => {
         throw new Error(`Batch creation failed: ${batchError.message}`);
       }
 
-      // 2. Publish all draft payslips
+      // 2. Publish draft payslips for this group only
+      const userIdsInGroup = employees.filter(emp => {
+        if (payrollGroupFilter === 'management') {
+          return ['management', 'admin', 'superadmin'].includes(emp.role);
+        }
+        return emp.role === payrollGroupFilter;
+      }).map(e => e.id);
+
+      if (userIdsInGroup.length === 0) {
+        throw new Error("No eligible employees found in the current group filter to publish.");
+      }
+
       let q = supabase.from('payslips')
         .update({ is_published: true })
         .eq('month_year', month)
-        .eq('is_published', false);
+        .eq('is_published', false)
+        .in('user_id', userIdsInGroup);
         
       if (subId) {
         q = q.eq('subsidiary_id', subId);
@@ -802,6 +892,40 @@ const AdminDashboard: React.FC = () => {
       
       const publishedCount = data?.length || 0;
 
+      // 3. Handle specific deductions and updates on finalization
+      if (data && data.length > 0) {
+        for (const payslip of data) {
+          const shortageDeduction = Number(payslip.breakdown?.shortageDeduction || 0);
+          if (shortageDeduction > 0) {
+            // Fetch current balance to be precise (avoid race conditions if multiple admins)
+            const { data: currentProfile } = await supabase
+              .from('profiles')
+              .select('shortage_balance')
+              .eq('id', payslip.user_id)
+              .single();
+            
+            if (currentProfile) {
+              await supabase
+                .from('profiles')
+                .update({ 
+                  shortage_balance: Math.max(0, (currentProfile.shortage_balance || 0) - shortageDeduction) 
+                })
+                .eq('id', payslip.user_id);
+            }
+          }
+        }
+      }
+
+      // 4. Mark approved Cash In-Lieu requests as finalized for these users
+      if (userIdsInGroup.length > 0) {
+        await supabase
+          .from('leave_requests')
+          .update({ status: 'finalized' })
+          .eq('type', 'cash_in_lieu')
+          .eq('status', 'approved')
+          .in('user_id', userIdsInGroup);
+      }
+
       await logAction({
         action: 'Payroll Finalization',
         category: 'payroll',
@@ -811,6 +935,7 @@ const AdminDashboard: React.FC = () => {
       });
 
       setPayrollStatus({ type: 'success', message: `Payroll successfully Finalized & Published (${publishedCount} records updated).` });
+      setViewMode('finalized');
       fetchData();
     } catch (err: any) {
       console.error('Payroll Finalization Failed:', err);
@@ -840,7 +965,7 @@ const AdminDashboard: React.FC = () => {
     setPayrollStatus({ type: 'info', message: 'Initiating Decryption & Vault Unlock...' });
 
     try {
-      const month = new Date().toISOString().slice(0, 7);
+      const month = selectedMonth;
       const subIdRaw = subFilter || profile?.subsidiary_id || 'all';
       const subId = subIdRaw === 'all' ? null : subIdRaw;
 
@@ -866,8 +991,48 @@ const AdminDashboard: React.FC = () => {
         q = q.eq('subsidiary_id', subId);
       }
 
-      const { error: publishError } = await q;
+      const { data: revertedPayslips, error: publishError } = await q.select('*');
       if (publishError) throw publishError;
+
+      // 3. Restore Shortage Balances if they were deducted
+      if (revertedPayslips && revertedPayslips.length > 0) {
+        for (const payslip of revertedPayslips) {
+          const shortageDeduction = Number(payslip.breakdown?.shortageDeduction || 0);
+          if (shortageDeduction > 0) {
+             const { data: currentProfile } = await supabase
+              .from('profiles')
+              .select('shortage_balance')
+              .eq('id', payslip.user_id)
+              .single();
+            
+            if (currentProfile) {
+              await supabase
+                .from('profiles')
+                .update({ 
+                  shortage_balance: (currentProfile.shortage_balance || 0) + shortageDeduction 
+                })
+                .eq('id', payslip.user_id);
+            }
+          }
+        }
+      }
+
+      // 4. Revert finalized Cash In-Lieu requests to approved status
+      const userIdsInGroup = employees.filter(emp => {
+        if (payrollGroupFilter === 'management') {
+          return ['management', 'admin', 'superadmin'].includes(emp.role);
+        }
+        return emp.role === payrollGroupFilter;
+      }).map(e => e.id);
+
+      if (userIdsInGroup.length > 0) {
+        await supabase
+          .from('leave_requests')
+          .update({ status: 'approved' })
+          .eq('type', 'cash_in_lieu')
+          .eq('status', 'finalized')
+          .in('user_id', userIdsInGroup);
+      }
 
       await logAction({
         action: 'Vault Unlock',
@@ -891,7 +1056,7 @@ const AdminDashboard: React.FC = () => {
   const exportPayrollToExcel = async () => {
     setProcessing(true);
     try {
-      const month = new Date().toISOString().slice(0, 7);
+      const month = selectedMonth;
       const subIdRaw = subFilter || profile?.subsidiary_id || 'all';
       const subId = subIdRaw === 'all' ? null : subIdRaw;
       
@@ -904,7 +1069,7 @@ const AdminDashboard: React.FC = () => {
           )
         `)
         .eq('month_year', month)
-        .eq('is_published', false);
+        .eq('is_published', viewMode === 'finalized');
 
       if (subId) {
         query = query.eq('subsidiary_id', subId);
@@ -922,6 +1087,8 @@ const AdminDashboard: React.FC = () => {
           'Hours Worked': d.standard_hours,
           'Overtime Hours': d.overtime_hours,
           'Overtime Pay': d.overtime_pay,
+          'Cash In-Lieu Days': d.breakdown?.cashInLieuDays || 0,
+          'Cash In-Lieu Pay': d.breakdown?.cashInLieuPay || 0,
           'Gross Pay': d.gross_pay,
           'Tax Amount': d.tax_amount,
           'AIDS Levy': d.aids_levy,
@@ -1070,6 +1237,12 @@ const AdminDashboard: React.FC = () => {
           Batch Management
         </button>
         <button 
+          onClick={() => setActiveTab('cash-balance')}
+          className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'cash-balance' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Cash in-Lieu Balance
+        </button>
+        <button 
           onClick={() => setActiveTab('reports')}
           className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'reports' ? 'bg-white text-mine-blue shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
         >
@@ -1084,6 +1257,189 @@ const AdminDashboard: React.FC = () => {
       </div>
 
       <AnimatePresence mode="wait">
+        {activeTab === 'cash-balance' && (
+          <motion.div
+            key="cash-balance"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="space-y-6"
+          >
+            <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-xl font-extrabold text-mine-blue uppercase tracking-tight flex items-center gap-2">
+                  <Calculator size={20} /> Cash in-Lieu of Leave Balance
+                </h1>
+                <p className="text-xs text-gray-500 font-medium italic">Accrued liability monitoring based on current leave balances (Valuation: Basic Salary / 22 Days)</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="bg-mine-blue/5 border border-mine-blue/10 rounded-xl px-6 py-3 text-right">
+                  <p className="text-[9px] font-black text-mine-blue uppercase tracking-widest leading-none mb-1">Total Liability</p>
+                  <p className="text-lg font-black font-mono text-gray-900">
+                    USD {employees
+                      .filter(e => {
+                        const matchRole = cashBalanceFilters.role === 'All' || e.role === cashBalanceFilters.role;
+                        const matchBranch = cashBalanceFilters.branch === 'All' || e.branch === cashBalanceFilters.branch;
+                        const matchPosition = cashBalanceFilters.position === 'All' || e.job_title === cashBalanceFilters.position;
+                        const matchStatus = cashBalanceFilters.status === 'All' || e.status === cashBalanceFilters.status;
+                        return matchRole && matchBranch && matchPosition && matchStatus;
+                      })
+                      .reduce((acc, e) => acc + ( (Number(e.base_salary || 0) / 22) * (Number(e.annual_leave_balance || 0))), 0)
+                      .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                    }
+                  </p>
+                </div>
+              </div>
+            </header>
+
+            {/* Filters Row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Search Staff</label>
+                <div className="relative">
+                  <input 
+                    type="text"
+                    placeholder="Filter by name..."
+                    value={globalSearch}
+                    onChange={(e) => setGlobalSearch(e.target.value)}
+                    className="w-full pl-8 pr-4 py-2 bg-white border border-gray-100 shadow-sm rounded-xl text-xs outline-none focus:ring-1 focus:ring-mine-blue transition-all"
+                  />
+                  <Users className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Role Filter</label>
+                <select 
+                  value={cashBalanceFilters.role}
+                  onChange={(e) => setCashBalanceFilters({ ...cashBalanceFilters, role: e.target.value })}
+                  className="w-full bg-white border border-gray-100 shadow-sm rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue appearance-none"
+                >
+                  <option value="All">All Roles</option>
+                  {[...new Set(employees.map(e => e.role))].filter(Boolean).map(role => (
+                    <option key={role as string} value={role as string}>{(role as string).charAt(0).toUpperCase() + (role as string).slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Branch/Dept</label>
+                <select 
+                  value={cashBalanceFilters.branch}
+                  onChange={(e) => setCashBalanceFilters({ ...cashBalanceFilters, branch: e.target.value })}
+                  className="w-full bg-white border border-gray-100 shadow-sm rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue appearance-none"
+                >
+                  <option value="All">All Branches</option>
+                  {[...new Set(employees.map(e => e.branch))].filter(Boolean).map(branch => (
+                    <option key={branch as string} value={branch as string}>{branch as string}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Position</label>
+                <select 
+                  value={cashBalanceFilters.position}
+                  onChange={(e) => setCashBalanceFilters({ ...cashBalanceFilters, position: e.target.value })}
+                  className="w-full bg-white border border-gray-100 shadow-sm rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue appearance-none"
+                >
+                  <option value="All">All Positions</option>
+                  {[...new Set(employees.map(e => e.job_title))].filter(Boolean).map(pos => (
+                    <option key={pos as string} value={pos as string}>{pos as string}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest pl-1">Status</label>
+                <select 
+                  value={cashBalanceFilters.status}
+                  onChange={(e) => setCashBalanceFilters({ ...cashBalanceFilters, status: e.target.value })}
+                  className="w-full bg-white border border-gray-100 shadow-sm rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue appearance-none"
+                >
+                  <option value="All">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="suspended">Suspended</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Balances Table */}
+            <div className="card !p-0 overflow-hidden border border-gray-100 shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-gray-50/50 border-b border-gray-100">
+                      <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest">Personnel</th>
+                      <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest">Role & Position</th>
+                      <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest text-center">Leave Balance</th>
+                      <th className="px-6 py-4 text-[9px] font-black text-gray-400 uppercase tracking-widest text-right">Daily Rate (Est)</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-mine-blue uppercase tracking-widest text-right bg-mine-blue/5">Cash in-Lieu Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 text-xs">
+                    {employees
+                      .filter(e => {
+                        const matchSearch = !globalSearch || e.fullName?.toLowerCase().includes(globalSearch.toLowerCase());
+                        const matchRole = cashBalanceFilters.role === 'All' || e.role === cashBalanceFilters.role;
+                        const matchBranch = cashBalanceFilters.branch === 'All' || e.branch === cashBalanceFilters.branch;
+                        const matchPosition = cashBalanceFilters.position === 'All' || e.job_title === cashBalanceFilters.position;
+                        const matchStatus = cashBalanceFilters.status === 'All' || e.status === cashBalanceFilters.status;
+                        return matchSearch && matchRole && matchBranch && matchPosition && matchStatus;
+                      })
+                      .map(e => {
+                        const dailyRate = Number(e.base_salary || 0) / 22;
+                        const leaveBalance = Number(e.annual_leave_balance || 0);
+                        const cashValue = dailyRate * leaveBalance;
+                        return { ...e, dailyRate, leaveBalance, cashValue };
+                      })
+                      .sort((a, b) => b.cashValue - a.cashValue)
+                      .map(e => (
+                        <tr key={e.id} className="hover:bg-gray-50/30 transition-colors group">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-black text-gray-500 group-hover:bg-mine-blue group-hover:text-white transition-colors uppercase">
+                                {(e.fullName || '?').charAt(0)}
+                              </div>
+                              <div>
+                                <p className="font-black text-gray-900 uppercase tracking-tight">{e.fullName}</p>
+                                <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">
+                                  <MapPin size={8} /> {e.branch || 'Head Office'}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="text-[9px] font-black text-mine-blue uppercase tracking-widest leading-none mb-1">{e.role}</span>
+                              <span className="font-bold text-gray-600 line-clamp-1">{e.job_title || 'Unassigned'}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-50 text-orange-600 border border-orange-100">
+                              <span className="font-mono font-bold text-sm tracking-tighter">{e.leaveBalance.toFixed(1)}</span>
+                              <span className="text-[8px] font-black uppercase tracking-widest">Days</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-right font-mono text-gray-500 font-bold">
+                            {e.currency || 'USD'} {e.dailyRate.toFixed(2)}
+                          </td>
+                          <td className="px-6 py-4 text-right bg-mine-blue/5">
+                            <span className="text-base font-black font-mono text-gray-900">
+                              {e.currency || 'USD'} {e.cashValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    {employees.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-gray-400 italic font-mono text-[10px] uppercase">Initiating Data Nodes...</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {activeTab === 'batches' && (
           <motion.div
             key="batches"
@@ -1091,7 +1447,15 @@ const AdminDashboard: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
           >
-            <PayrollBatchManagement />
+            <PayrollBatchManagement 
+              onViewBatch={(batch) => {
+                setPayrollGroupFilter(batch.payroll_group);
+                setSubFilter(batch.subsidiary_id || '');
+                setSelectedMonth(batch.month_year);
+                setViewMode(batch.status === 'finalized' ? 'finalized' : 'draft');
+                setActiveTab('run');
+              }}
+            />
           </motion.div>
         )}
 
@@ -1155,6 +1519,15 @@ const AdminDashboard: React.FC = () => {
           <p className="text-xs text-gray-500 font-medium">Monitoring and processing Mineazy solution operations</p>
         </div>
         <div className="flex flex-col md:flex-row items-end gap-3">
+          <div className="flex flex-col items-end">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Processing Month</label>
+            <input 
+              type="month"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="bg-white border border-gray-200 rounded px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue"
+            />
+          </div>
           <div className="relative group min-w-[300px]">
              <Users className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-mine-blue transition-colors" size={16} />
              <input 
@@ -1166,14 +1539,14 @@ const AdminDashboard: React.FC = () => {
              />
           </div>
           <div className="flex flex-col items-end">
-            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Payroll Group</label>
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Payroll Run Control</label>
             <select 
               value={payrollGroupFilter}
               onChange={(e) => setPayrollGroupFilter(e.target.value)}
-              className="bg-white border border-gray-200 rounded px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue min-w-[150px]"
+              className="bg-white border border-gray-200 rounded px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-mine-blue min-w-[200px]"
             >
-              <option value="General">General Staff</option>
-              <option value="Management">Management</option>
+              <option value="employee">General Staff Payroll</option>
+              <option value="management">Management Payroll</option>
             </select>
           </div>
           {isSuperAdmin && (
@@ -1305,7 +1678,7 @@ const AdminDashboard: React.FC = () => {
             </div>
             <div>
               <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Readiness & Integrity Matrix</h2>
-              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Dataset verification for {new Date().toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</p>
+              <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Dataset verification for {new Date(selectedMonth + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</p>
             </div>
           </div>
           
@@ -1317,6 +1690,20 @@ const AdminDashboard: React.FC = () => {
             <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 ${readinessMetrics.pendingLoans === 0 ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
               <div className={`w-2 h-2 rounded-full ${readinessMetrics.pendingLoans === 0 ? 'bg-green-500' : 'bg-amber-500'}`} />
               <span className="text-[10px] font-black uppercase tracking-widest">Loans: {readinessMetrics.pendingLoans === 0 ? 'PROCESSED' : 'OUTSTANDING'}</span>
+            </div>
+            <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl">
+              <button 
+                onClick={() => setViewMode('draft')}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${viewMode === 'draft' ? 'bg-white text-mine-blue' : 'text-gray-400 hover:text-white'}`}
+              >
+                Draft Mode
+              </button>
+              <button 
+                onClick={() => setViewMode('finalized')}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${viewMode === 'finalized' ? 'bg-white text-mine-blue' : 'text-gray-400 hover:text-white'}`}
+              >
+                Published Mode
+              </button>
             </div>
           </div>
         </div>
@@ -1626,16 +2013,16 @@ const AdminDashboard: React.FC = () => {
           />
         </section>
 
-        {/* PAYROLL MATRIX - DRAFT REVIEW */}
+        {/* PAYROLL MATRIX - {viewMode === 'draft' ? 'DRAFT REVIEW' : 'PUBLISHED ARCHIVE'} */}
         <section className="card lg:col-span-2 !p-0 overflow-hidden bg-white border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between p-6 bg-slate-900 text-white">
+          <div className={`flex items-center justify-between p-6 ${viewMode === 'draft' ? 'bg-slate-900' : 'bg-mine-blue'} text-white`}>
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
                 <Calculator size={20} />
               </div>
               <div>
-                <h3 className="text-sm font-black uppercase tracking-widest">Draft Payroll Matrix</h3>
-                <p className="text-[10px] opacity-70 font-bold uppercase tracking-widest">Review {draftPayslips.length} generated node results</p>
+                <h3 className="text-sm font-black uppercase tracking-widest">{viewMode === 'draft' ? 'Draft Payroll Matrix' : 'Published Payroll Ledger'}</h3>
+                <p className="text-[10px] opacity-70 font-bold uppercase tracking-widest">Review {draftPayslips.length} {viewMode} node results</p>
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -1705,20 +2092,27 @@ const AdminDashboard: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
-                          onClick={() => regenerateSinglePayslip(p.user_id)}
-                          className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
-                          title="Recompute calculation for this node"
-                        >
-                          <RefreshCw size={14} />
-                        </button>
-                        <button 
-                          onClick={() => deleteDraftPayslip(p.id)}
-                          className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
-                          title="Purge draft record"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        {viewMode === 'draft' && (
+                          <>
+                            <button 
+                              onClick={() => regenerateSinglePayslip(p.user_id)}
+                              className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                              title="Recompute calculation for this node"
+                            >
+                              <RefreshCw size={14} />
+                            </button>
+                            <button 
+                              onClick={() => deleteDraftPayslip(p.id)}
+                              className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+                              title="Purge draft record"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </>
+                        )}
+                        {viewMode === 'finalized' && (
+                          <span className="text-[9px] font-black text-gray-400 uppercase">ReadOnly</span>
+                        )}
                       </div>
                     </td>
                   </tr>

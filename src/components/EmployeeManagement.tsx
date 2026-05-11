@@ -32,7 +32,6 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import AuditTrail from './AuditTrail';
 
 const Pagination: React.FC<{
   currentPage: number;
@@ -241,9 +240,10 @@ const EmployeeManagement: React.FC<{
     baseSalary: 1000,
     currency: 'USD',
     status: 'active',
-    payrollGroup: 'General',
+    payrollGroup: 'employee',
     password: 'Mining2026!',
-    annualLeaveBalance: 20
+    annualLeaveBalance: 20,
+    shortageBalance: 0
   });
 
   // PII Visibility & Editing state
@@ -441,7 +441,9 @@ const EmployeeManagement: React.FC<{
         jobTitle: u.job_title || u.jobTitle || 'No Title',
         subsidiaryId: u.subsidiary_id || u.subsidiaryId,
         baseSalary: u.base_salary || u.baseSalary || 0,
-        payrollGroup: u.payroll_group || u.payrollGroup || 'General',
+        annualLeaveBalance: u.annual_leave_balance || u.annualLeaveBalance || 0,
+        shortageBalance: u.shortage_balance || u.shortageBalance || 0,
+        payrollGroup: u.payroll_group || u.payrollGroup || 'employee',
         createdAt: u.created_at
       }));
 
@@ -704,7 +706,8 @@ const EmployeeManagement: React.FC<{
         annual_leave_balance: Number(form.annualLeaveBalance),
         currency: form.currency,
         status: form.status,
-        payroll_group: form.payrollGroup
+        payroll_group: form.payrollGroup,
+        shortage_balance: Number(form.shortageBalance || 0)
       };
 
       if (editingEmp) {
@@ -1209,7 +1212,7 @@ const EmployeeManagement: React.FC<{
             <p className="text-sm text-gray-500">Recruit, manage and audit site personnel</p>
           </div>
           <button 
-            onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!', annualLeaveBalance: 20 }); setIsModalOpen(true); }}
+            onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'employee', password: 'Mining2026!', annualLeaveBalance: 20 }); setIsModalOpen(true); }}
             className="btn btn-primary flex items-center gap-2"
           >
             <Plus size={18} /> Recruit Staff
@@ -1296,36 +1299,8 @@ const EmployeeManagement: React.FC<{
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <aside className="lg:col-span-1 space-y-6">
-          <section className="card bg-slate-900 border-none p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <ShieldCheck className="text-mine-gold" size={16} />
-              <h3 className="text-[10px] font-bold text-white uppercase tracking-widest">Audit Summary</h3>
-            </div>
-            <div className="space-y-3">
-              <div className="flex justify-between items-end border-b border-white/5 pb-2">
-                <span className="text-[10px] text-gray-400 uppercase font-black">Total Active</span>
-                <span className="text-lg font-black text-mine-gold font-monoLeading-none">{employees.length}</span>
-              </div>
-              <div className="flex justify-between items-end border-b border-white/5 pb-2">
-                <span className="text-[10px] text-gray-400 uppercase font-black">Management</span>
-                <span className="text-sm font-bold text-white font-mono">{employees.filter(e => e.role === 'management').length}</span>
-              </div>
-              <div className="flex justify-between items-end border-b border-white/5 pb-2">
-                <span className="text-[10px] text-gray-400 uppercase font-black">Contractors</span>
-                <span className="text-sm font-bold text-white font-mono">{employees.filter(e => e.role === 'contractor').length}</span>
-              </div>
-              <div className="flex justify-between items-end">
-                <span className="text-[10px] text-gray-400 uppercase font-black">Site Admins</span>
-                <span className="text-sm font-bold text-white font-mono">{employees.filter(e => e.role === 'admin' || e.role === 'superadmin').length}</span>
-              </div>
-            </div>
-          </section>
-        </aside>
-
-        <main className="lg:col-span-3 space-y-4">
-          {activeView === 'directory' && (
+      <div className="space-y-4">
+        {activeView === 'directory' && (
             <>
               <section className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-2">
             <div className="relative flex flex-col justify-end">
@@ -1446,8 +1421,8 @@ const EmployeeManagement: React.FC<{
             )}
           </AnimatePresence>
 
-          <div className="card !p-0 overflow-hidden shadow-sm">
-            <table className="w-full text-left">
+          <div className="card !p-0 overflow-x-auto shadow-sm">
+            <table className="min-w-full text-left">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                   <th className="px-6 py-4 w-10">
@@ -1547,10 +1522,11 @@ const EmployeeManagement: React.FC<{
                               branch: emp.branch || '', 
                               subsidiaryId: emp.subsidiaryId || '', 
                               baseSalary: emp.baseSalary || 1000, 
-                              annualLeaveBalance: emp.annual_leave_balance || 20,
+                              annualLeaveBalance: emp.annualLeaveBalance || 20,
+                              shortageBalance: emp.shortageBalance || 0,
                               currency: emp.currency || 'USD', 
                               status: emp.status || 'active', 
-                              payrollGroup: emp.payrollGroup || 'General',
+                              payrollGroup: emp.payrollGroup || 'employee',
                               password: '---' 
                             }); 
                             setIsModalOpen(true); 
@@ -1599,7 +1575,7 @@ const EmployeeManagement: React.FC<{
               <div className="p-12 text-center space-y-4">
                 <p className="text-gray-400 italic text-sm">No matching personnel records found.</p>
                 <button 
-                  onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'General', password: 'Mining2026!', annualLeaveBalance: 20 }); setIsModalOpen(true); }}
+                  onClick={() => { setEditingEmp(null); setForm({ fullName: '', email: '', role: 'employee', department: '', jobTitle: '', branch: '', subsidiaryId: '', baseSalary: 1000, currency: 'USD', status: 'active', payrollGroup: 'employee', password: 'Mining2026!', annualLeaveBalance: 20, shortageBalance: 0 }); setIsModalOpen(true); }}
                   className="btn btn-primary mx-auto flex items-center gap-2"
                 >
                   <Plus size={18} /> Add New Employee
@@ -1844,7 +1820,6 @@ const EmployeeManagement: React.FC<{
               </section>
             </div>
           )}
-        </main>
       </div>
 
       <AnimatePresence>
@@ -1984,12 +1959,22 @@ const EmployeeManagement: React.FC<{
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payroll Run Group</label>
-                        <select value={form.payrollGroup} onChange={(e) => setForm({...form, payrollGroup: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold">
-                          <option value="General">General Staff Payroll</option>
-                          <option value="Management">Management Payroll</option>
-                        </select>
+                        <label className="text-[10px] font-black text-orange-500 uppercase tracking-widest">Shortage Balance ({form.currency})</label>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          value={form.shortageBalance} 
+                          onChange={(e) => setForm({...form, shortageBalance: e.target.value})} 
+                          className="w-full bg-orange-50 border border-orange-100 rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-orange-400 font-bold text-orange-700" 
+                        />
                       </div>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Payroll Run Group</label>
+                      <select value={form.payrollGroup} onChange={(e) => setForm({...form, payrollGroup: e.target.value})} className="w-full bg-gray-50 border rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold">
+                        <option value="employee">General Staff Payroll</option>
+                        <option value="management">Management Payroll</option>
+                      </select>
                     </div>
 
                     <button type="submit" disabled={processing} className="btn btn-primary w-full py-4 flex items-center justify-center gap-2 !mt-1">
@@ -2779,11 +2764,6 @@ const EmployeeManagement: React.FC<{
           </div>
         )}
       </AnimatePresence>
-
-      {/* Audit Trail Intelligence */}
-      <section className="mt-12">
-        <AuditTrail subsidiaryId={profile?.subsidiary_id} isSuperAdmin={isSuperAdmin} />
-      </section>
 
     </div>
   );

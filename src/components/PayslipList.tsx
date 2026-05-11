@@ -322,6 +322,15 @@ const PayslipList: React.FC = () => {
                               <span className="font-bold text-gray-900">{selectedPayslip.overtimePay.toFixed(2)}</span>
                             </div>
                           )}
+                          {selectedPayslip.breakdown?.cashInLieuPay > 0 && (
+                            <div className="flex justify-between items-center text-sm border-b border-gray-50 pb-2">
+                              <div>
+                                <span className="text-gray-500 font-sans text-xs">Cash In-Lieu of Leave</span>
+                                <p className="text-[8px] font-bold text-mine-blue uppercase tracking-widest">{selectedPayslip.breakdown.cashInLieuDays} Days Redeemed</p>
+                              </div>
+                              <span className="font-bold text-gray-900">{parseFloat(selectedPayslip.breakdown.cashInLieuPay).toFixed(2)}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between items-center pt-2 text-base font-black text-gray-900">
                              <span className="font-sans text-xs uppercase tracking-widest">Total Gross</span>
                              <span className="border-b-2 border-gray-900 pb-1">{selectedPayslip.grossPay.toFixed(2)}</span>
@@ -354,10 +363,19 @@ const PayslipList: React.FC = () => {
                                <span className="font-black text-orange-600">- {selectedPayslip.loanDeductions.toFixed(2)}</span>
                             </div>
                           )}
+                          {Number(selectedPayslip.breakdown?.shortageDeduction || 0) > 0 && (
+                            <div className="flex justify-between items-center text-sm border-b border-gray-50 pb-2">
+                               <div>
+                                 <span className="text-gray-500 font-sans text-xs font-bold text-orange-800 underline decoration-dotted">Sales Shortage Recovery</span>
+                                 <p className="text-[8px] font-bold text-orange-400 uppercase tracking-widest">{selectedPayslip.currency} {Number(selectedPayslip.breakdown?.shortageRemaining || 0).toLocaleString()} Remaining Debt</p>
+                               </div>
+                               <span className="font-black text-orange-800">- {Number(selectedPayslip.breakdown?.shortageDeduction || 0).toFixed(2)}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between items-center pt-2 text-base font-black text-red-600">
                              <span className="font-sans text-xs font-black uppercase tracking-widest">Total Deductions</span>
                              <span className="border-b-2 border-red-600 pb-1">
-                               - {(selectedPayslip.taxAmount + selectedPayslip.aidsLevy + selectedPayslip.nssaDeduction + selectedPayslip.loanDeductions).toFixed(2)}
+                               - {selectedPayslip.totalDeductions.toFixed(2)}
                              </span>
                           </div>
                         </div>

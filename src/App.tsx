@@ -8,6 +8,7 @@ import AdminDashboard from './components/AdminDashboard';
 import EmployeeManagement from './components/EmployeeManagement';
 import Sidebar from './components/Sidebar';
 import SubsidiaryManagement from './components/SubsidiaryManagement';
+import AuditTrail from './components/AuditTrail';
 import { motion, AnimatePresence } from 'motion/react';
 
 import GlobalSearch from './components/GlobalSearch';
@@ -187,6 +188,7 @@ function MainApp() {
   const { user, profile, loading, isAdmin, isSuperAdmin } = useAuth();
   const [activeTab, setActiveTab] = React.useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false);
   const [selectedEmployeeFromSearch, setSelectedEmployeeFromSearch] = React.useState<any | null>(null);
 
   if (loading) {
@@ -276,10 +278,17 @@ function MainApp() {
         </AnimatePresence>
 
         <div className={`
-          fixed md:relative inset-y-0 left-0 z-40 transform md:transform-none transition-transform duration-300 ease-in-out
+          fixed md:relative inset-y-0 left-0 z-40 transform md:transform-none transition-all duration-300 ease-in-out
           ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${isSidebarCollapsed ? 'md:w-20' : 'md:w-64'}
         `}>
-          <Sidebar activeTab={activeTab} setActiveTab={handleSetTab} isAdmin={isAdmin} />
+          <Sidebar 
+            activeTab={activeTab} 
+            setActiveTab={handleSetTab} 
+            isAdmin={isAdmin} 
+            isCollapsed={isSidebarCollapsed}
+            setIsCollapsed={setIsSidebarCollapsed}
+          />
         </div>
 
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
@@ -304,7 +313,13 @@ function MainApp() {
                 />
               )}
               {isSuperAdmin && activeTab === 'subsidiaries' && <SubsidiaryManagement />}
-              {(!isAdmin || (activeTab !== 'admin' && activeTab !== 'employees' && activeTab !== 'subsidiaries')) && (
+              {isAdmin && activeTab === 'audit' && (
+                <AuditTrail 
+                  subsidiaryId={profile?.subsidiary_id} 
+                  isSuperAdmin={isSuperAdmin} 
+                />
+              )}
+              {(!isAdmin || (activeTab !== 'admin' && activeTab !== 'employees' && activeTab !== 'subsidiaries' && activeTab !== 'audit')) && (
                 <Dashboard activeTab={activeTab} setActiveTab={handleSetTab} />
               )}
             </motion.div>

@@ -28,7 +28,11 @@ interface PayrollBatch {
   created_by?: string;
 }
 
-const PayrollBatchManagement: React.FC = () => {
+interface PayrollBatchManagementProps {
+  onViewBatch?: (batch: PayrollBatch) => void;
+}
+
+const PayrollBatchManagement: React.FC<PayrollBatchManagementProps> = ({ onViewBatch }) => {
   const { isSuperAdmin, profile } = useAuth();
   const [batches, setBatches] = useState<PayrollBatch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +41,7 @@ const PayrollBatchManagement: React.FC = () => {
   
   const [form, setForm] = useState({
     month: new Date().toISOString().slice(0, 7),
-    group: 'General',
+    group: 'employee',
     subsidiaryId: '',
     notes: ''
   });
@@ -164,6 +168,18 @@ const PayrollBatchManagement: React.FC = () => {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                {onViewBatch && (
+                  <button 
+                    onClick={() => onViewBatch(batch)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                      batch.status === 'draft' 
+                        ? 'bg-orange-600 text-white hover:bg-orange-700 shadow-lg shadow-orange-100' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-100'
+                    }`}
+                  >
+                    {batch.status === 'draft' ? 'Edit Draft' : 'View Results'}
+                  </button>
+                )}
                 <div className="text-right mr-4 hidden md:block">
                   <p className="text-[9px] text-gray-400 font-bold uppercase">Created</p>
                   <p className="text-[10px] text-gray-900 font-mono">{new Date(batch.created_at).toLocaleDateString()}</p>
@@ -217,8 +233,8 @@ const PayrollBatchManagement: React.FC = () => {
                     onChange={e => setForm({...form, group: e.target.value})}
                     className="w-full bg-gray-50 border border-gray-200 rounded p-2.5 text-sm outline-none focus:ring-1 focus:ring-mine-blue font-bold"
                   >
-                    <option value="General">General Staff</option>
-                    <option value="Management">Management</option>
+                    <option value="employee">General Staff Payroll</option>
+                    <option value="management">Management Payroll</option>
                   </select>
                 </div>
                 <div className="space-y-1">
